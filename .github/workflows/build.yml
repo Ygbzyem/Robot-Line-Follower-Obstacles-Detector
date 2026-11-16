@@ -1,0 +1,41 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build contest firmware, prototypes and tests
+        run: |
+          fail=0
+          # Robot_Skeleton_v02 and Robot_MKE_v03 are kept as history and do not compile (see README).
+            for d in src/competition/* src/archive/* \
+                   src/prototypes/Robot_LineFollow_v5 src/prototypes/Robot_RouteRun \
+                   src/tests/hardware/* src/tests/integration/*; do
+            name=$(basename "$d")
+            echo "::group::$d"
+            if PLATFORMIO_SRC_DIR="$GITHUB_WORKSPACE/$d" PLATFORMIO_BUILD_DIR="$RUNNER_TEMP/pio/$name" pio run; then
+              echo "PASS $d"
+            else
+              echo "::error::build failed: $d"; fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail
