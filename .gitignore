@@ -1,0 +1,14 @@
+# PlatformIO / Arduino build output
+.pio/
+build/
+*.bin
+*.elf
+*.map
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+# Logs downloaded from the robot web page
+log*.txt
