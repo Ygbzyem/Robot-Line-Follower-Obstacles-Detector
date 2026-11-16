@@ -5,7 +5,10 @@ build/
 *.elf
 *.map
 # Editors / OS
-.vscode/
+# VS Code: share project settings, keep machine-specific files out
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 .DS_Store
 Thumbs.db
