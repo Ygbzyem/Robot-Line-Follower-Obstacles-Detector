@@ -2,7 +2,7 @@
 
 [English](README.md) | **Tiếng Việt**
 
-[![build](https://github.com/<user>/line-follower-robot/actions/workflows/build.yml/badge.svg)](https://github.com/<user>/line-follower-robot/actions/workflows/build.yml)
+[![build](https://github.com/Ygbzyem/Robot-Line-Follower-Obstacles-Detector/actions/workflows/build.yml/badge.svg)](https://github.com/Ygbzyem/Robot-Line-Follower-Obstacles-Detector/actions/workflows/build.yml)
 ![MCU](https://img.shields.io/badge/MCU-ESP32--S3-blue)
 ![Framework](https://img.shields.io/badge/Arduino--ESP32-3.0.7-teal)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -45,10 +45,11 @@ line-follower-robot/
 ├── src/
 │   ├── README.md                          # giải thích từng thư mục
 │   ├── competition/                       # code ĐANG CHẠY trên xe
-│   │   └── Robot_Competition/             # firmware thi đấu C3.9
+│   │   └── Robot_Competition/             # firmware thi đấu C3.11b
 │   │
 │   ├── archive/                           # các bản thi đấu cũ, không nạp nữa
 │   │   ├── Robot_Competition_v31/         # v3.1   chế độ DEMO / FAST theo bản đồ
+│   │   ├── Robot_Competition_C39/         # C3.9   thoát cụm vòng tròn, chống kẹt khi xoay
 │   │   ├── Robot_Competition_A/           # v3.5.1 PID tốc độ bánh, né lướt
 │   │   ├── Robot_Competition_B/           # v3.9.1 bản B chạy song song
 │   │   └── Robot_Competition_C/           # v3.8   bản C, chống chạy ngược
@@ -145,11 +146,12 @@ Firmware vẫn nhận tên lệnh của các bản trước, nên dòng thông s
 
 ## Lịch sử phiên bản
 
-Xe đang chạy `src/competition/Robot_Competition` (C3.9). Các bản thi đấu cũ nằm trong `src/archive/`; xem chi tiết ở [CHANGELOG.md](CHANGELOG.md).
+Xe đang chạy `src/competition/Robot_Competition` (C3.11b). Các bản thi đấu cũ nằm trong `src/archive/`; xem chi tiết ở [CHANGELOG.md](CHANGELOG.md).
 
 | Phiên bản | Thư mục | Tóm tắt |
 |---|---|---|
-| C3.9 | `src/competition/Robot_Competition` | Firmware thi đấu mới nhất |
+| C3.11b | `src/competition/Robot_Competition` | Firmware thi đấu mới nhất: khoá hướng trong cụm lục giác, xuất phát đi thẳng ra khỏi ô đen |
+| C3.9 | `src/archive/Robot_Competition_C39` | Thoát cụm vòng tròn, né về phía cua, chống kẹt khi xoay |
 | v3.9.1 | `src/archive/Robot_Competition_B` | Bản B chạy song song |
 | v3.8 | `src/archive/Robot_Competition_C` | Bản C có chống chạy ngược |
 | v3.5.1 | `src/archive/Robot_Competition_A` | PID tốc độ bánh, né lướt |
