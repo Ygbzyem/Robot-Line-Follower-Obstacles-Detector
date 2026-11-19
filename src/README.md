@@ -33,7 +33,7 @@ PLATFORMIO_SRC_DIR=src/tests/hardware/Test_LineSensor pio run -t upload
 
 | Folder | Version | Description |
 |---|---|---|
-| `Robot_Competition` | C3.9 | Contest firmware currently flashed on the robot: line following, junction clusters, obstacle avoidance, DEMO/FAST map modes, OLED menu, Serial and Wi-Fi tuning. |
+| `Robot_Competition` | C3.11b | Contest firmware currently flashed on the robot: line following, junction clusters, obstacle avoidance, DEMO/FAST map modes, OLED menu, Serial and Wi-Fi tuning. |
 
 Only this folder is used in a race. New contest versions replace the file here; the previous file moves to `archive/`.
 
@@ -47,6 +47,7 @@ Earlier contest versions, kept to compare behavior or roll back. They are not fl
 | `Robot_Competition_A` | v3.5.1 | Per-wheel speed PID, parameter export, flowing obstacle avoidance |
 | `Robot_Competition_B` | v3.9.1 | Parallel version B with fast single 90-degree corners |
 | `Robot_Competition_C` | v3.8 | Version C with wrong-way guard, base of C3.x |
+| `Robot_Competition_C39` | C3.9 | Circle-cluster exit, avoidance toward the bend, line search in the right direction, anti-stall pivot |
 
 ## prototypes/
 
