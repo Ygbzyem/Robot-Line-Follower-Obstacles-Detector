@@ -1,6 +1,14 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.11 (11/11): HEXAGON (honeycomb) CLUSTER COMPENSATED LIKE THE SQUARE CLUSTER: Y-junction (2 branches splitting fast, gap >= 4 channels within 30 mm) -> hexagon
+                    mode (log 'H'): LOCK the main heading = heading when entering the cluster (no drifting along the slanted edges), at every junction pick the branch that brings the robot back to the main
+                    heading, DISABLE the C3.9 circle-exit rule (60-degree corners made the robot think it was curving -> wrong branch -> circled one cell).
+                    Curving continuously > 10 cm inside the cluster -> temporarily re-enable the circle rule. USER_CFG: track 128, aout 58, out 76, par 500.
+  VERSION C3.11b: entering the hexagons RIGHT AFTER A BEND: main heading = robot heading at the first Y-junction (not the old hRef from before the bend), and hexagon
+                    mode still turns on when the robot has just come out of a bend (HEX_GZ 70 -> 400).
+  VERSION C3.10 (10/11): START INSIDE THE BLACK BOX: drive STRAIGHT holding the gyro heading until the sensor bar leaves the box + START_GO (60 mm), only then follow the line
+                    (old: followed the line right inside the black box -> robot kept wobbling). Log 'P'.
   VERSION C3.9 (10/11): 1. CIRCLE CLUSTER EXIT: while curving (|gzSlow| > CIRC_GZ 40 deg/s, outside square clusters), at junctions take the branch on the
                        OUTER side of the arc (right bend -> left branch). The old version compared with the cluster entry heading: after turning > 180 deg (3/4 turn) wrap180 flipped the sign
                        -> picked the INNER side -> circled forever. Circle turn-commit threshold 90 -> 45 deg/s (CIRC_COMMIT).
@@ -144,7 +152,7 @@ struct Tr { uint16_t t; int16_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uin
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
-const char* USER_CFG = "kp 14.5;kd 0.55;sp 76;vmax 100;cspd 54;vfast 100;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 816.9;wheel 48;track 132;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 65;aback 65;out 260;par 350;vout 70;vpar 70;vret 60;vturn 70;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1157.63;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 40;pclust 2";   // 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
+const char* USER_CFG = "kp 14.5;kd 0.55;sp 76;vmax 100;cspd 54;vfast 100;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 816.9;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 58;aback 65;out 76;par 500;vout 70;vpar 70;vret 60;vturn 70;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1157.63;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 40;pclust 2";   // 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
 // ================= EDIT HERE =================
 bool REV_L = true;     // LEFT motor reversed (confirmed)
 bool REV_R = false;
@@ -157,6 +165,14 @@ const float REAR_MM = 35;       // robot tail behind the wheel axle
 const float OB_LONG = 205, OB_SHORT = 95;   // OBSTACLE = BRICK 205 x 95 x 95 mm
 const float CATCH_PCT = 38;     // speed right after touching the line on return
 const float TURN_MIN = 20, TURN_TOL = 3.0f, KP_T = 1.4f, KD_T = 0.07f;   // gyro-controlled turning
+const float HEX_GAP = 4;       // C3.11: white gap between the 2 branches (channels) ...
+const float HEX_SPLIT = 30;    // ... must appear within this many mm from the start of the junction
+const float HEX_GZ = 400;      // C3.11b: a Y-junction still counts as hexagon while the robot is curving (|gzSlow| < 400 deg/s, i.e. almost always). Previously 70 -> right after a bend into the hexagons
+                               //  hexagon mode did NOT turn on -> the circle rule ran inside the cluster -> circling. Touching circles are already told apart by the branch-split gap (HEX_GAP/HEX_SPLIT). Old way: 70
+const float HEX_CV = 100;      // C3.11: curving continuously for more than this distance (mm) = circle, temporarily disable hexagon mode
+const float HEX_MM = 450;      // C3.11: how far (mm) after the last Y-junction counts as OUT of the hexagon cluster
+const float START_GO = 60;     // C3.10: after the sensor bar leaves the START box, drive straight this many mm more before following the line
+const float START_MAX = 600;   // C3.10: maximum straight distance (mm) from the start (black box too long / misplaced -> give up)
 const float CIRC_COMMIT = 45;  // C3.9: curving threshold to COMMIT to the outer branch (old 90 deg/s -> large circles / slow runs never committed)
 const float CIRC_GZ = 40;      // C3.9: curving > 40 deg/s -> at junctions take the branch on the OUTER side of the arc (circle exit). 0 = off (as C3.8)
 const bool AVOID_ON_CURVE = true;      // C3.7: obstacle on a bend -> avoid toward the bend + catch the line as soon as it appears on the avoid side. false = always by 'side'
@@ -916,7 +932,8 @@ bool runActive = false;   // stuck channels are auto-disabled only during a CONT
 bool inAvoid = false;  // while avoiding an obstacle: do NOT use the stuck-channel filter (a line under one edge channel is normal)
 float lineC = 0;      // line center (before a junction) - to know which side a wide trace flares to
 float wrap180(float a) { while (a > 180) a -= 360; while (a < -180) a += 360; return a; }
-float jDh = 0, hRefG = 0; bool gridG = false;   // gridG: in grid mode (square cluster)   // C3: heading offset from hRef (deg), used at junctions
+float jDh = 0, hRefG = 0; bool gridG = false; bool hexG = false;   // hexG: C3.11 inside a HEXAGON (honeycomb) cluster
+//   // gridG: in grid mode (square cluster)   // C3: heading offset from hRef (deg), used at junctions
 // C3 DECISIVE TURN AT JUNCTIONS (touching circles): chose the HEADING-KEEPING branch but the branch only flashed past the sensor bar (robot rolling along
 // old circle) -> HOLD the turn command toward that side until the heading is close to hRef (<= 20 deg) or 450 ms pass. Only while following the line.
 bool gClus = false;   // C3.1: inside a CLUSTER (>= 2 junctions within 45 cm) and 'cluster 1' -> v3.8-style junction / corner handling
@@ -1054,7 +1071,7 @@ void readLine() {
   // C3 TOUCHING CIRCLES: the robot is FAR OFF heading (>= 35 deg vs the cluster entry heading) and the junction has a branch on the HEADING-KEEPING SIDE
   // -> FOLLOW the edge of that branch firmly -> turn decisively onto the right branch, no further looping on the old circle.
   // only when the robot is ROLLING BACKWARD on that side (e.g. circling the old loop): L corners / square pulses (driving straight into the corner) are unaffected
-  if (jCommitOK() && fabsf(jDh) >= 35.0f && side == jPref && (side ? gzSlow > CIRC_COMMIT : gzSlow < -CIRC_COMMIT) && dist() - jRecD > 200.0f) {
+  if (jCommitOK() && fabsf(jDh) >= 35.0f && side == jPref && (side ? gzSlow > (hexG ? 90.0f : CIRC_COMMIT) : gzSlow < -(hexG ? 90.0f : CIRC_COMMIT)) && dist() - jRecD > 200.0f) {
     float ext = side ? (bLe - 3.5f) - lineC : lineC - (b0s - 3.5f);
     if (ext >= 1.0f && !onOldPath(edgePos)) { pos = edgePos * 1.15f; jCom = side ? 1 : -1; tJCom = millis(); }
   }
@@ -1749,12 +1766,31 @@ void runCourse() {
   // main heading (hRef) (equal -> pref). Side branch -> bring the WHEEL AXLE to the junction CENTER then turn into the branch (log 'Q').
   // (before: the PID only passed the side branch for ~0.1 s -> missed the branch -> robot circled / ran backward depending on the cluster offset up or down)
   bool gridOn = false; float gridJ = -1e9; uint8_t clusterPref = 0;
-  int qMB = 0; float hexD = -1e9, sqCandD = -1e9; bool qPend = false; float qL = 0, qR = 0, qLc = 0, qD0 = 0, qD1 = 0, qH0 = 0; bool qFull = false;
+  int qMB = 0; float hexW = -1e9, hRefHex = 0, dCv = -1e9;   // C3.11 hexagon cluster: hexW = position of the last Y-junction, hRefHex = locked main heading
+  float hexD = -1e9, sqCandD = -1e9; bool qPend = false; float qL = 0, qR = 0, qLc = 0, qD0 = 0, qD1 = 0, qH0 = 0; bool qFull = false; bool qFast = false;
   auto inSqCluster = [&]() { int n = 0; for (float x : jT) if (dist() - x < 500) n++; return n >= 2; };   // >= 2 junctions within 45 cm = inside a CLUSTER
   float lastRD = -1e9, lastLD = -1e9, lastBD = -1e9, lastShapeD = -1e9, lastRecD = -1e9;   // lastBD: both edges AT ONCE (real T-junction)   // v2.9.1: position (encoder) when a branch last touched the RIGHT / LEFT edge of the sensor bar
   int cornerSide = 0; uint32_t tCorner = 0, tCentered = millis(); float dCornerBar = 0, lastSeenD = dist();   // 90-degree corner: side, when seen, sensor bar position at the corner
   float centeredD = -1e9;
   uint8_t nR = 0, nL = 0; bool heldEdgeLogged = false;
+  // C3.10 START INSIDE THE BLACK BOX: the sensor bar sees almost all black (>= 6 channels) -> do NOT follow the line (the wide black trace makes PD wobble left and right),
+  // drive STRAIGHT holding the gyro heading, ramp up, until the sensor bar leaves the box (<= 4 black channels, stable), then drive START_GO mm more before following the line.
+  // Line right after the box off-center (|pos| > 1, robot placed slightly skewed / sharp bend) or no line seen -> stop early and let PD / line search handle it.
+  readLine();
+  if (nBlack >= 6) {
+    phase = 'P'; logEv('P');
+    const float h0 = heading(); const float s0 = dist(); float dOut = -1e9; uint32_t t0 = millis();
+    while (!aborted && millis() - t0 < 2500 && dist() - s0 < START_MAX) {
+      update(); readLine();
+      if (nBlack >= 6) dOut = -1e9;                                  // still inside the black box
+      else if (dOut < -1e8) { if (nBlack <= 4) dOut = dist(); }      // just left the box edge
+      else if (dist() - dOut >= START_GO || (seen && nBlack >= 1 && fabsf(posC) > 1.0f) || (!seen && dist() - dOut >= 30)) break;
+      float b = min((float)cfg.base, 35.0f + (millis() - t0) * 0.08f);
+      float corr = constrain(2.0f * (h0 - heading()) - 0.05f * gz, -b * 0.5f, b * 0.5f);
+      driveV(b - corr, b + corr);
+    }
+    phase = '-'; tPrev = micros(); tStraight = millis(); lastErr = 0; hRef = heading();
+  }
   while (!aborted) {
     update(); readLine(); loops++; mapRecTick();
     uint32_t now = micros(); float dt = max(1e-4f, (now - tPrev) * 1e-6f); tPrev = now;
@@ -1775,7 +1811,7 @@ void runCourse() {
       driveV(b - corr, b + corr);
       continue;
     } else finStart = -1;
-    // VAT CAN
+    // OBSTACLE
     if (vlOn && vlOk && seen && !junc && vlMM > 20 && vlMM < cfg.obs) {
       inAvoid = true; jPref = cfg.pref; gClus = false;            // while avoiding: follow the line on a fixed preferred side, as in v2.8
       if (mapUse) mapSync(mapFind(mapPos(), "O", 350));
@@ -1807,15 +1843,23 @@ void runCourse() {
     if (junc && !wasJunc) { jTwo = false; jS0 = dist(); }
     if (junc && (nBlob >= 2 || (b0s <= 1 && b0e >= 6))) jTwo = true;   // 2 separate traces, or black COVERING THE WHOLE BAR (T from the base, 4-way)
     if (!junc && wasJunc && jTwo && dist() - jS0 >= 8.0f) jT[jTI++ & 3] = dist();
-    if (junc && !wasJunc) { qL = qR = 0; qFull = false; qMB = 0; qLc = lineC; qD0 = dist(); qH0 = heading(); }
+    if (junc && !wasJunc) { qL = qR = 0; qFull = false; qFast = false; qMB = 0; qLc = lineC; qD0 = dist(); qH0 = heading(); }
     if (junc) {
       if (b0s <= 1 && bLe >= 6) qFull = true;
+      if (nBlob >= 2 && bLs - b0e >= HEX_GAP && dist() - qD0 < HEX_SPLIT) qFast = true;   // C3.11: 2 branches SPLITTING FAST (60-degree angle) = hexagon Y-junction; 2 touching circles split very slowly
       qMB = max(qMB, nBlob);
       // C3.5: at a PERPENDICULAR T (black covers the whole bar, 1 trace) on the main heading = may be the ENTRY of a square cluster -> side chosen by pclust
       if (qFull && qMB == 1 && fabsf(wrap180(heading() - hRef)) < 30.0f && dist() - hexD > 600.0f) sqCandD = dist();
       if (qMB >= 2) sqCandD = -1e9;                    // splitting into 2 diagonal branches = Y-junction (hexagon) -> not one
       qL = max(qL, lineC - (b0s - 3.5f)); qR = max(qR, (bLe - 3.5f) - lineC);
     }
+    // C3.11 HEXAGON CLUSTER: Y-junction (black trace SPLITTING into 2 slanted branches) -> enable hexagon mode for HEX_MM (each new Y-junction extends it)
+    if (!junc && wasJunc && cfg.clusterMode && cfg.jMode && !inAvoid && qFast && fabsf(gzSlow) < HEX_GZ && dist() - qD0 < 90.0f) {   // large gzSlow = touching circles, not a hexagon
+      if (dist() - hexW > HEX_MM) { logEv('H'); if (dist() - hexW > 3.0f * HEX_MM) hRefHex = qH0; }   // just ENTERED the cluster: lock the main heading = ROBOT heading at the first Y-junction (left the cluster briefly and re-entered -> keep the old heading)
+      // C3.11b: the previous version used hRef - hRef stands still while curving (|gz| > 40) -> entering the hexagons RIGHT AFTER A BEND made the main heading = heading BEFORE the bend (wrong) -> wrong compensation -> circling
+      hexW = hexD = dist(); gridOn = false;
+    }
+    if (junc && dist() - hexW < HEX_MM) hexW = hexD = dist();   // inside the cluster: every junction (even one showing only 1 branch) extends hexagon mode
     if (!junc && wasJunc && cfg.clusterMode && cfg.jMode && !inAvoid && fabsf(gzSlow) < 70.0f && dist() - qD0 < 90.0f) {
       // C3.4: PERPENDICULAR T (black covers the whole bar, 1 trace - not splitting into 2 branches) on the main heading = ENTERING A SQUARE CLUSTER.
       //       Y-junction (black covering the bar then SPLITTING into 2 diagonal branches) = HEXAGON / honeycomb -> NOT latched in the grid for 60 cm (beyond the hexagon frame)
@@ -1905,7 +1949,13 @@ void runCourse() {
     // Note: wrap180 keeps hRef correct when the accumulated turn angle exceeds 180 deg in later runs.
     // C3: hRef follows the robot heading only when driving NEARLY STRAIGHT (|gz| < 40 deg/s): on circles hRef is not dragged around
     //     -> at the joint of 2 circles the robot takes the branch that KEEPS THE HEADING, instead of looping one circle forever.
-    if (seen && !junc && millis() - tStraight > 400 && !inCluster() && fabsf(gz) < 40.0f) hRef += wrap180(heading() - hRef) * min(1.0f, dt * 5.0f);
+    // C3.11 HEXAGON: like the square cluster (gridH) - inside the cluster LOCK the main heading = heading when entering, do NOT let hRef drift along the hexagon edges
+    //  (edges 12-17 cm long, robot drives straight > 400 ms -> the old hRef drifted along the slanted edge -> lost the left/right compensation -> circled one cell).
+    // curving CONTINUOUSLY > HEX_CV mm = circle (hexagon edges are straight, the 60-degree corners are short) -> temporarily disable hexagon mode (the circle-exit rule runs again)
+    if (fabsf(gzSlow) < CIRC_GZ) dCv = -1e9; else if (dCv < -1e8) dCv = dist();
+    hexG = cfg.clusterMode && cfg.jMode && dist() - hexW < HEX_MM && !(dCv > -1e8 && dist() - dCv > HEX_CV);
+    if (hexG) hRef = hRefHex;
+    else if (seen && !junc && millis() - tStraight > 400 && !inCluster() && fabsf(gz) < 40.0f) hRef += wrap180(heading() - hRef) * min(1.0f, dt * 5.0f);
     gzSlow += (gz - gzSlow) * min(1.0f, dt * 4.0f);
     // SQUARE cluster (straights + corners), not TOUCHING CIRCLES (robot curving continuously, large gzSlow) -> circles keep the C3 handling
     gClus = cfg.clusterMode && gridOn && fabsf(gzSlow) < 70.0f; gridG = gridOn;   // C3.4: old v3.8 style ONLY inside square clusters (no more false triggers in hexagons)
@@ -1915,7 +1965,7 @@ void runCourse() {
       // C3.9 CIRCLE EXIT: CURVING continuously (|gzSlow| > CIRC_GZ, outside square clusters) -> the EXIT branch is on the OUTER side of the arc
       //  (right curve -> left branch, left curve -> right branch). Old version compared with the cluster entry heading (hRef): the entry line is perpendicular to the exit line,
       //  or it had turned > 180 deg (wrap180 flips sign) -> wrongly picked the INNER side -> circled forever. The outer branch is the old path -> onOldPath/goingBack block it.
-      if (CIRC_GZ > 0 && !gridOn && fabsf(gzSlow) > CIRC_GZ) dh = gzSlow > 0 ? 90.0f : -90.0f;
+      if (CIRC_GZ > 0 && !gridOn && !hexG && fabsf(gzSlow) > CIRC_GZ) dh = gzSlow > 0 ? 90.0f : -90.0f;   // C3.11: disabled inside hexagon clusters (60-degree corners make gzSlow large -> wrong branch)
       jDh = dh; hRefG = hRef; jPref = dh > 20 ? 1 : dh < -20 ? 0 : clusterPref; } else { jPref = cfg.pref; jDh = 0; }
     if (seen && !junc && fabsf(posC) < 1.5f) {   // C3: record the driven path + detect RUNNING BACKWARD on the old path (>= 60 mm)
       crumbAdd();
@@ -2704,7 +2754,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.9 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.11b | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
@@ -2727,10 +2777,10 @@ template <class F> void writeLog(F out) {
   if (!cfg.avMode) { snprintf(b, sizeof b, " | brick measured width ~%.0f (%s)", 2 * avHalfW, avLen < 150 ? "ACROSS" : "READ"); out(b); }
   out("\n");
   snprintf(b, sizeof b, "RESULT: %s | %.2f s | %.0f mm | %.2f m/s | %d obstacles | %d line losses\n", res.why, res.t, res.d, res.v, res.obs, res.lost); out(b);
-  out("EVENTS (K 90-degree corner seen, L line lost, O obstacle met, 1/4/5/7 avoid step started (7 = arc to find line), T line seen while avoiding, M follow line while moving, G line seen mid-way -> follow now, C line caught (old way: stop-center-turn), X avoid saw no line, Z failed to catch line, R back up to find line (overshot), V spinning stopped, o avoid done, F finish, u ignore U-TURN line in cluster, q line lost on curve -> straight + turn now, W avoid: crossed the line -> drive onto it then turn, D avoid: following backward -> turn 180, B avoid: too close to brick -> back up, m turn by MAP, x map mismatch -> off, g line lost in the middle -> go straight to re-catch (dashed line), > < chose turn RIGHT/LEFT, reason: b branch seen on 1 side, n T-junction by preference, f unclear):\n");
+  out("EVENTS (K 90-degree corner seen, L line lost, O obstacle met, P start: drive straight out of the black box, H hexagon cluster: main heading locked, 1/4/5/7 avoid step started (7 = arc to find line), T line seen while avoiding, M follow line while moving, G line seen mid-way -> follow now, C line caught (old way: stop-center-turn), X avoid saw no line, Z failed to catch line, R back up to find line (overshot), V spinning stopped, o avoid done, F finish, u ignore U-TURN line in cluster, q line lost on curve -> straight + turn now, W avoid: crossed the line -> drive onto it then turn, D avoid: following backward -> turn 180, B avoid: too close to brick -> back up, m turn by MAP, x map mismatch -> off, g line lost in the middle -> go straight to re-catch (dashed line), > < chose turn RIGHT/LEFT, reason: b branch seen on 1 side, n T-junction by preference, f unclear):\n");
   snprintf(b, sizeof b, "  (%d junctions J, %d line losses L; important events below, J omitted)\n", cntJ, cntL); out(b);
   for (int i = 0; i < evCount(); i++) { const Ev &e = evAt(i); if (e.c == 'J') continue; snprintf(b, sizeof b, "  %c %6.0f mm %6.2f s  heading %+7.1f  black %u\n", e.c, e.d, e.t, e.h, e.nb); out(b); }
-  out("TABLE 50ms: t(s) d(mm) pos(-3.5..3.5, -- = lost) spd(%) step(L line,J junction,K back to corner,S search,1-7 avoid,M follow line,G grab now,C catch line) black vl(mm) heading(deg) 8ch(D1..D8, # = black)\n");
+  out("TABLE 50ms: t(s) d(mm) pos(-3.5..3.5, -- = lost) spd(%) step(P start,L line,J junction,K back to corner,S search,1-7 avoid,M follow line,G grab now,C catch line) black vl(mm) heading(deg) 8ch(D1..D8, # = black)\n");
   int first = nTr > NTR ? nTr - NTR : 0;
   if (first) { snprintf(b, sizeof b, "  (only the last %d rows kept = last 35 s of the run)\n", NTR); out(b); }
   for (int i = first; i < nTr; i++) {
