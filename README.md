@@ -45,10 +45,11 @@ line-follower-robot/
 ├── src/
 │   ├── README.md                          # what each folder contains
 │   ├── competition/                       # RUNNING on the robot
-│   │   └── Robot_Competition/             # contest firmware C3.11b
+│   │   └── Robot_Competition/             # contest firmware C3.13
 │   │
 │   ├── archive/                           # earlier contest versions, not flashed any more
 │   │   ├── Robot_Competition_v31/         # v3.1   DEMO / FAST map modes
+│   │   ├── Robot_Competition_C311b/       # C3.11b best version for 500 rpm motors
 │   │   ├── Robot_Competition_C39/         # C3.9   circle-cluster exit, anti-stall pivot
 │   │   ├── Robot_Competition_A/           # v3.5.1 wheel speed PID, flowing avoidance
 │   │   ├── Robot_Competition_B/           # v3.9.1 parallel version B
@@ -208,11 +209,12 @@ Command names of earlier builds are still accepted, so exported parameter lines 
 
 ## Version History
 
-The robot runs `src/competition/Robot_Competition` (C3.11b). Earlier contest versions are kept in `src/archive/`; see [CHANGELOG.md](CHANGELOG.md).
+The robot runs `src/competition/Robot_Competition` (C3.13). Earlier contest versions are kept in `src/archive/`; see [CHANGELOG.md](CHANGELOG.md).
 
 | Version | Folder | Summary |
 |---|---|---|
-| C3.11b | `src/competition/Robot_Competition` | Latest contest firmware: hexagon-cluster heading lock, straight start out of the black box |
+| C3.13 | `src/competition/Robot_Competition` | Latest contest firmware: C3.11b with defaults for the new motors (gearbox ~20.7:1) |
+| C3.11b | `src/archive/Robot_Competition_C311b` | Best version for 500 rpm motors: hexagon-cluster heading lock, straight start out of the black box |
 | C3.9 | `src/archive/Robot_Competition_C39` | Circle-cluster exit, avoidance toward the bend, anti-stall pivot |
 | v3.9.1 | `src/archive/Robot_Competition_B` | Parallel version B |
 | v3.8 | `src/archive/Robot_Competition_C` | Version C with wrong-way guard |

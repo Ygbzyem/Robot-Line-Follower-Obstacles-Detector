@@ -34,7 +34,7 @@ Remove-Item Env:PLATFORMIO_SRC_DIR
 
 | Thư mục | Phiên bản | Mô tả |
 |---|---|---|
-| `Robot_Competition` | C3.11b | Firmware thi đấu đang nạp trên xe: dò line, cụm ngã rẽ, né vật cản, chế độ DEMO/FAST theo bản đồ, menu OLED, chỉnh thông số qua Serial và Wi-Fi. |
+| `Robot_Competition` | C3.13 | Firmware thi đấu đang nạp trên xe (thông số mặc định cho motor mới, hộp số ~20,7:1): dò line, cụm ngã rẽ, né vật cản, chế độ DEMO/FAST theo bản đồ, menu OLED, chỉnh thông số qua Serial và Wi-Fi. |
 
 Chỉ thư mục này được dùng khi thi. Khi có bản thi đấu mới, file mới thay vào đây, còn file cũ chuyển sang `archive/`.
 
@@ -48,6 +48,7 @@ Các bản thi đấu trước, giữ lại để so sánh hoặc quay về khi 
 | `Robot_Competition_A` | v3.5.1 | PID tốc độ từng bánh, xuất thông số, né vật cản kiểu lướt |
 | `Robot_Competition_B` | v3.9.1 | Bản B chạy song song, góc 90 độ đơn xoay nhanh |
 | `Robot_Competition_C` | v3.8 | Bản C có chống chạy ngược, là nền của C3.x |
+| `Robot_Competition_C311b` | C3.11b | Bản tốt nhất cho motor 500 rpm: khoá hướng trong cụm lục giác, xuất phát đi thẳng ra khỏi ô đen |
 | `Robot_Competition_C39` | C3.9 | Thoát cụm vòng tròn, né về phía cua, tìm lại line đúng chiều, chống kẹt khi xoay |
 
 ## prototypes/
