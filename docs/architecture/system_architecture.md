@@ -3,7 +3,7 @@
 ## Block diagram
 
 ```
-                 2S 18650 ── fuse ── switch ──┬── TB6612 VM (+470 µF) ──► 2 × N20 motors
+            2S 18650 ── connector ── switch ──┬── TB6612 VM (+470 µF) ──► 2 × N20 motors
                                               ├── MKE-B01 shield DC jack ──► ESP32-S3 (MKE-K01)
                                               └── 100k/33k divider ──► GPIO 4 (VBAT)
 

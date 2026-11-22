@@ -14,10 +14,11 @@
 | 10 | Buzzer | 1 | Beeps | [price] | [shop] | [link] |
 | 11 | 2S battery protection board | 1 | Cuts the pack output on overcharge, over-discharge and short circuit | [price] | [shop] | [link] |
 | 12 | 18650 cell, 2600 mAh | 2 | 2S battery pack, cells in series | [price] | [shop] | [link] |
-| 13 | Fuse + 470 µF capacitor | 1 | Motor supply protection at TB6612 VM | [price] | [shop] | [link] |
-| 14 | Resistors 100k + 33k | 1 | Battery voltage divider | [price] | [shop] | [link] |
-| 15 | 3D chassis base, made to order | 1 | Layer 1: motors, battery, line sensor arm | [price] | Xe Dò Line (Shopee) | [shopee.vn/xedoline](https://shopee.vn/xedoline) |
-| 16 | Perfboard, brass standoffs, wheels, wires | 1 | Layer 2 board and assembly | [price] | [shop] | [link] |
+| 13 | 470 µF capacitor | 1 | Smooths the motor supply at TB6612 VM | [price] | [shop] | [link] |
+| 14 | Quick wire connector, 2-wire, 0.34–0.54 mm² (22–20 AWG) | 1 | Battery-to-board power connection, no fuse | 8,000 | [shop] | [link] |
+| 15 | Resistors 100k + 33k | 1 | Battery voltage divider | [price] | [shop] | [link] |
+| 16 | 3D chassis base, made to order | 1 | Layer 1: motors, battery, line sensor arm | [price] | Xe Dò Line (Shopee) | [shopee.vn/xedoline](https://shopee.vn/xedoline) |
+| 17 | Perfboard, brass standoffs, wheels, wires | 1 | Layer 2 board and assembly | [price] | [shop] | [link] |
 | | **Total** | | | **[total]** | | |
 
 Prices are what the team paid in [month/year] and may change.

@@ -133,6 +133,7 @@ The battery pack is two 18650 cells in series (2S: 7.4 V nominal, 8.4 V full) wi
 - Cells cannot be swapped between runs; the pack is charged as a whole with a 2S (8.4 V) charger.
 - Most simple protection boards do not balance the cells. Check each cell voltage from time to time and charge them separately if they drift apart.
 - The protection board has a current limit. A stalled motor or a hard reversal can trip it and cut the power during a run, so pick a board rated well above the stall current of both motors together.
+- There is no fuse: the protection board is the only short-circuit protection, so keep the power wiring short, insulated and tidy.
 - Heat from soldering can damage an 18650 cell. Spot-welded nickel strips or cells with solder tabs are safer.
 - Two 18650 cells weigh about 90 g, a large share of a small robot, which adds inertia in turns and braking.
 - The voltage falls from 8.4 V to about 6.5 V over one charge, so the same PWM gives a different speed. Tune at a mid charge level and recheck when the pack is full or low.
@@ -151,7 +152,7 @@ The electronics are soldered on a perfboard. We chose perfboard because a mistak
 | IO shield (MKE-B01) | Holds the ESP32-S3 and brings every GPIO out to pin headers, so the modules plug in with jumper wires |
 | TB6612FNG | Dual H-bridge: turns the PWM and direction signals of the ESP32-S3 into motor current from the battery |
 | 470 µF capacitor | Absorbs motor current spikes on the TB6612 supply so the voltage does not dip and reset the ESP32-S3 |
-| Fuse | Cuts the motor supply on a short circuit or a jammed motor |
+| Quick wire connector (2-wire, 22–20 AWG) | Joins the battery leads to layer 2 without soldering, so the pack can be unplugged for charging or replacement |
 | 100 kΩ + 33 kΩ divider | Scales the battery voltage down for GPIO4 so the firmware can read it |
 | MPU6050 | Gyroscope: holds the heading on straights and in the hexagon section, measures the turn angles of obstacle avoidance |
 | OLED SSD1306 | Shows the menu pages, sensor status, battery voltage and run results |
@@ -224,8 +225,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Author
 
-**Phạm Minh Tùng** — Semiconductor IC Design, FPT University. [Teammates]
-
+**Phạm Minh Tùng** — Semiconductor IC Design, FPT University.
 ## License
 
 [MIT](LICENSE) © 2026 Phạm Minh Tùng

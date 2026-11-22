@@ -135,6 +135,7 @@ Khối pin gồm hai pin 18650 nối tiếp (2S: danh định 7,4 V, đầy 8,4 
 - Không thay pin nhanh giữa các lượt được; cả khối pin phải sạc bằng bộ sạc 2S (8,4 V).
 - Phần lớn mạch bảo vệ đơn giản không cân bằng cell. Thỉnh thoảng nên đo điện áp từng cell và sạc riêng nếu hai cell lệch nhau.
 - Mạch bảo vệ có giới hạn dòng. Motor bị kẹt hoặc đảo chiều gấp có thể làm mạch ngắt nguồn giữa lượt chạy, nên chọn mạch có dòng định mức cao hơn hẳn dòng kẹt của cả hai motor.
+- Xe không dùng cầu chì: mạch bảo vệ pin là lớp bảo vệ chập mạch duy nhất, nên đi dây nguồn ngắn, bọc cách điện và gọn gàng.
 - Nhiệt khi hàn có thể làm hỏng pin 18650. Hàn bấm lá kẽm (niken) hoặc dùng pin có sẵn chân hàn sẽ an toàn hơn.
 - Hai pin 18650 nặng khoảng 90 g, chiếm phần lớn khối lượng của một xe nhỏ, làm tăng quán tính khi vào cua và khi phanh.
 - Điện áp giảm từ 8,4 V xuống khoảng 6,5 V trong một lần sạc, nên cùng một mức PWM cho tốc độ khác nhau. Nên chỉnh thông số khi pin ở mức giữa và kiểm tra lại khi pin đầy hoặc yếu.
@@ -153,7 +154,7 @@ Phần điện tử được hàn trên mạch phíp. Nhóm chọn hàn phíp đ
 | IO shield (MKE-B01) | Gắn ESP32-S3 và đưa mọi chân GPIO ra hàng rào, nên các module cắm vào bằng dây jumper |
 | TB6612FNG | Mạch cầu H đôi: biến tín hiệu PWM và chiều quay từ ESP32-S3 thành dòng điện từ pin cấp cho motor |
 | Tụ 470 µF | Hấp thụ xung dòng của motor ở nguồn TB6612 để điện áp không sụt làm ESP32-S3 khởi động lại |
-| Cầu chì | Ngắt nguồn motor khi chập mạch hoặc motor bị kẹt |
+| Đầu nối nhanh dây điện (2 dây, 22–20 AWG) | Nối dây pin vào tầng 2 mà không cần hàn, nên rút pin ra để sạc hoặc thay được |
 | Cầu chia áp 100 kΩ + 33 kΩ | Hạ điện áp pin xuống mức GPIO4 đọc được để firmware đo điện áp pin |
 | MPU6050 | Con quay hồi chuyển: giữ hướng trên đoạn thẳng và trong cụm lục giác, đo góc quay khi né vật cản |
 | OLED SSD1306 | Hiện các trang menu, trạng thái cảm biến, điện áp pin và kết quả lượt chạy |
