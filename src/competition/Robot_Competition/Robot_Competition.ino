@@ -1,6 +1,9 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.13 (21/11): = C3.11b + USER_CFG for the NEW MOTORS (gearbox ~20.7:1, both wheels cpr 576.3, ~1.4x faster):
+                    cpr 576.3, vfull 1640 (estimate - run 'wcal'), speed percentages x 0.71 (cspd 38, vclust 25 (simulation: 28 -> square cluster worse), vout/vpar 49, vret 42, vturn 49),
+                    kp 10.2, kd 0.39, sp 80. After flashing: 'reset' (loads USER_CFG) -> 'cal' -> 'wcal' -> 'lag'.
   VERSION C3.11 (11/11): HEXAGON (honeycomb) CLUSTER COMPENSATED LIKE THE SQUARE CLUSTER: Y-junction (2 branches splitting fast, gap >= 4 channels within 30 mm) -> hexagon
                     mode (log 'H'): LOCK the main heading = heading when entering the cluster (no drifting along the slanted edges), at every junction pick the branch that brings the robot back to the main
                     heading, DISABLE the C3.9 circle-exit rule (60-degree corners made the robot think it was curving -> wrong branch -> circled one cell).
@@ -152,7 +155,7 @@ struct Tr { uint16_t t; int16_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uin
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
-const char* USER_CFG = "kp 14.5;kd 0.55;sp 76;vmax 100;cspd 54;vfast 100;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 816.9;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 58;aback 65;out 76;par 500;vout 70;vpar 70;vret 60;vturn 70;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1157.63;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 40;pclust 2";   // 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
+const char* USER_CFG = "kp 10.2;kd 0.39;sp 80;vmax 100;cspd 38;vfast 100;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 58;aback 65;out 76;par 500;vout 49;vpar 49;vret 42;vturn 49;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1640;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 25;pclust 2";   // 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
 // ================= EDIT HERE =================
 bool REV_L = true;     // LEFT motor reversed (confirmed)
 bool REV_R = false;
@@ -2754,7 +2757,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.11b | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.13 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
