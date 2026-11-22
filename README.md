@@ -98,6 +98,69 @@ ESP32-S3 (MakerEDU MKE-K01 + MKE-B01 shield), 2 × N20 encoder motors on a TB661
 - Wiring diagram: [hardware/schematics/](hardware/schematics/)
 - System overview: [docs/architecture/system_architecture.md](docs/architecture/system_architecture.md)
 
+## Mechanical Build
+
+The robot has two layers: a 3D-printed base (layer 1) that carries the motors, the battery and the line sensor, and a perfboard (layer 2) that carries the electronics, held above the base on brass standoffs.
+
+| Front | Rear | Bottom |
+|---|---|---|
+| ![Front](media/photos/robot_front.jpg) | ![Rear](media/photos/robot_rear.jpg) | ![Bottom](media/photos/robot_bottom.jpg) |
+
+### Layer 1: base and battery
+
+The base is a 3D model the team bought and had made to order by the Shopee shop [Xe Dò Line](https://shopee.vn/xedoline). The photoresistor line sensor on this robot comes from the same shop. You can order from it or design your own base.
+
+Layer 1 holds:
+
+- the two N20 encoder motors and the wheels,
+- the front arm that keeps the line sensor at a fixed height above the track,
+- the battery pack, low and between the drive wheels,
+- the brass standoffs that carry layer 2.
+
+The battery pack is two 18650 cells in series (2S: 7.4 V nominal, 8.4 V full) with a protection board soldered on. This pack is the author's own design. Power the robot however you prefer; you do not have to copy it.
+
+**Benefits**
+
+- The pack voltage is above what the motors need, so the TB6612 can keep the target wheel speed while the pack drains instead of slowing down.
+- 18650 cells supply the motor start and stall currents without a large voltage drop, and 2600 mAh lasts many practice runs per charge.
+- The protection board cuts the output on overcharge, over-discharge and short circuit, which protects both the cells and the wiring.
+- Soldered joints do not lose contact when the robot bumps or vibrates, unlike the springs of a cell holder, so the ESP32-S3 does not reset in the middle of a run.
+- The heaviest part sits low and between the drive wheels: a low center of gravity, more grip on the drive wheels and steadier fast turns.
+- The cells are cheap and easy to find, and the pack is shaped to fit the base.
+
+**Limitations**
+
+- Cells cannot be swapped between runs; the pack is charged as a whole with a 2S (8.4 V) charger.
+- Most simple protection boards do not balance the cells. Check each cell voltage from time to time and charge them separately if they drift apart.
+- The protection board has a current limit. A stalled motor or a hard reversal can trip it and cut the power during a run, so pick a board rated well above the stall current of both motors together.
+- Heat from soldering can damage an 18650 cell. Spot-welded nickel strips or cells with solder tabs are safer.
+- Two 18650 cells weigh about 90 g, a large share of a small robot, which adds inertia in turns and braking.
+- The voltage falls from 8.4 V to about 6.5 V over one charge, so the same PWM gives a different speed. Tune at a mid charge level and recheck when the pack is full or low.
+- 8.4 V is above the 6 V rating of the N20 motors; long runs at full PWM wear them faster and heat them up.
+- Replacing a worn cell means taking the pack apart. A damaged Li-ion pack is a fire risk: do not charge it unattended and do not use a dented cell.
+
+### Layer 2: electronics
+
+![Layer 2](media/photos/layer2_top.jpg)
+
+The electronics are soldered on a perfboard. We chose perfboard because a mistake can be fixed by desoldering a joint and rerouting a wire, without making a new board. If you prefer a PCB, you can make one from the author's schematic in [hardware/schematics/](hardware/schematics/). The schematic does not include the IO shield of the ESP32-S3.
+
+| Part | Role |
+|---|---|
+| ESP32-S3 (MKE-K01) | Main controller: reads the sensors, runs line following, junction handling and obstacle avoidance, drives the motors, serves the Wi-Fi tuning page |
+| IO shield (MKE-B01) | Holds the ESP32-S3 and brings every GPIO out to pin headers, so the modules plug in with jumper wires |
+| TB6612FNG | Dual H-bridge: turns the PWM and direction signals of the ESP32-S3 into motor current from the battery |
+| 470 µF capacitor | Absorbs motor current spikes on the TB6612 supply so the voltage does not dip and reset the ESP32-S3 |
+| Fuse | Cuts the motor supply on a short circuit or a jammed motor |
+| 100 kΩ + 33 kΩ divider | Scales the battery voltage down for GPIO4 so the firmware can read it |
+| MPU6050 | Gyroscope: holds the heading on straights and in the hexagon section, measures the turn angles of obstacle avoidance |
+| OLED SSD1306 | Shows the menu pages, sensor status, battery voltage and run results |
+| Buttons START / SET / MODE | Start a run, run the action of the current page, go to the next page; any button stops the robot |
+| Buzzer | Beeps at start, at track events and on warnings |
+| Headers and wires | Connect the line sensor, the VL53L0X and the motors and encoders on layer 1 |
+
+The line sensor (front arm), the VL53L0X (front, facing forward) and the motors with their encoders are not on layer 2.
+
 ## Getting Started
 
 ### Build and flash

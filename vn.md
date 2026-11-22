@@ -100,6 +100,69 @@ ESP32-S3 (MakerEDU MKE-K01 + shield MKE-B01), 2 motor N20 có encoder qua driver
 
 Các tài liệu trong `docs/` viết bằng tiếng Anh.
 
+## Lắp ráp cơ khí
+
+Xe gồm hai tầng: tầng 1 là đế in 3D mang motor, pin và cảm biến line; tầng 2 là mạch phíp mang phần điện tử, đặt phía trên đế bằng các trụ đồng.
+
+| Mặt trước | Mặt sau | Mặt dưới |
+|---|---|---|
+| ![Mặt trước](media/photos/robot_front.jpg) | ![Mặt sau](media/photos/robot_rear.jpg) | ![Mặt dưới](media/photos/robot_bottom.jpg) |
+
+### Tầng 1: đế xe và pin
+
+Đế xe là mô hình 3D nhóm mua riêng và đặt gia công theo yêu cầu qua shop Shopee [Xe Dò Line](https://shopee.vn/xedoline). Cảm biến dò line loại quang trở trên xe cũng mua ở shop này. Các bạn có thể tham khảo shop hoặc tự thiết kế đế.
+
+Tầng 1 gồm:
+
+- hai motor N20 có encoder và bánh xe,
+- tay đỡ phía trước giữ cảm biến line ở độ cao cố định so với sa bàn,
+- khối pin, đặt thấp và nằm giữa hai bánh chủ động,
+- các trụ đồng đỡ tầng 2.
+
+Khối pin gồm hai pin 18650 nối tiếp (2S: danh định 7,4 V, đầy 8,4 V) có hàn mạch bảo vệ pin. Khối pin này làm theo ý của tác giả. Các bạn có thể tự chế tạo nguồn cấp cho xe theo cách của mình, không bắt buộc làm theo.
+
+**Lợi ích**
+
+- Điện áp pin cao hơn mức motor cần, nên TB6612 vẫn giữ được tốc độ bánh đặt khi pin yếu dần thay vì xe chạy chậm lại.
+- Pin 18650 cấp đủ dòng khởi động và dòng kẹt motor mà không sụt áp nhiều, dung lượng 2600 mAh chạy tập được nhiều lượt mỗi lần sạc.
+- Mạch bảo vệ ngắt nguồn khi sạc quá, xả quá hoặc chập mạch, bảo vệ cả pin lẫn dây dẫn.
+- Mối hàn không bị mất tiếp xúc khi xe va chạm hay rung, khác với lò xo của đế pin, nên ESP32-S3 không bị khởi động lại giữa lượt chạy.
+- Phần nặng nhất nằm thấp và giữa hai bánh chủ động: trọng tâm thấp, bánh bám đường hơn và ổn định hơn khi vào cua nhanh.
+- Pin rẻ, dễ mua, khối pin làm vừa với đế.
+
+**Hạn chế**
+
+- Không thay pin nhanh giữa các lượt được; cả khối pin phải sạc bằng bộ sạc 2S (8,4 V).
+- Phần lớn mạch bảo vệ đơn giản không cân bằng cell. Thỉnh thoảng nên đo điện áp từng cell và sạc riêng nếu hai cell lệch nhau.
+- Mạch bảo vệ có giới hạn dòng. Motor bị kẹt hoặc đảo chiều gấp có thể làm mạch ngắt nguồn giữa lượt chạy, nên chọn mạch có dòng định mức cao hơn hẳn dòng kẹt của cả hai motor.
+- Nhiệt khi hàn có thể làm hỏng pin 18650. Hàn bấm lá kẽm (niken) hoặc dùng pin có sẵn chân hàn sẽ an toàn hơn.
+- Hai pin 18650 nặng khoảng 90 g, chiếm phần lớn khối lượng của một xe nhỏ, làm tăng quán tính khi vào cua và khi phanh.
+- Điện áp giảm từ 8,4 V xuống khoảng 6,5 V trong một lần sạc, nên cùng một mức PWM cho tốc độ khác nhau. Nên chỉnh thông số khi pin ở mức giữa và kiểm tra lại khi pin đầy hoặc yếu.
+- 8,4 V cao hơn mức 6 V định mức của motor N20; chạy lâu ở PWM tối đa làm motor nóng và nhanh mòn.
+- Thay một cell bị chai phải tháo cả khối pin. Pin Li-ion bị hư có nguy cơ cháy: không sạc khi không có người trông và không dùng pin bị móp.
+
+### Tầng 2: mạch điện tử
+
+![Tầng 2](media/photos/layer2_top.jpg)
+
+Phần điện tử được hàn trên mạch phíp. Nhóm chọn hàn phíp để nếu có sai sót thì có thể rã mối hàn và đi lại dây, không phải làm mạch mới. Nếu muốn dùng PCB, các bạn có thể làm dựa trên schematic tác giả vẽ trong [hardware/schematics/](hardware/schematics/). Schematic không bao gồm IO shield của ESP32-S3.
+
+| Linh kiện | Vai trò |
+|---|---|
+| ESP32-S3 (MKE-K01) | Bộ điều khiển chính: đọc cảm biến, chạy dò line, xử lý ngã rẽ và né vật cản, điều khiển motor, phát trang chỉnh thông số qua Wi-Fi |
+| IO shield (MKE-B01) | Gắn ESP32-S3 và đưa mọi chân GPIO ra hàng rào, nên các module cắm vào bằng dây jumper |
+| TB6612FNG | Mạch cầu H đôi: biến tín hiệu PWM và chiều quay từ ESP32-S3 thành dòng điện từ pin cấp cho motor |
+| Tụ 470 µF | Hấp thụ xung dòng của motor ở nguồn TB6612 để điện áp không sụt làm ESP32-S3 khởi động lại |
+| Cầu chì | Ngắt nguồn motor khi chập mạch hoặc motor bị kẹt |
+| Cầu chia áp 100 kΩ + 33 kΩ | Hạ điện áp pin xuống mức GPIO4 đọc được để firmware đo điện áp pin |
+| MPU6050 | Con quay hồi chuyển: giữ hướng trên đoạn thẳng và trong cụm lục giác, đo góc quay khi né vật cản |
+| OLED SSD1306 | Hiện các trang menu, trạng thái cảm biến, điện áp pin và kết quả lượt chạy |
+| Nút START / SET / MODE | Bắt đầu chạy, thực hiện thao tác của trang hiện tại, sang trang kế; nút bất kỳ để dừng xe |
+| Còi | Kêu khi bắt đầu chạy, khi gặp sự kiện trên sa bàn và khi có cảnh báo |
+| Hàng rào và dây nối | Nối cảm biến line, VL53L0X, motor và encoder ở tầng 1 |
+
+Cảm biến line (tay đỡ phía trước), VL53L0X (phía trước, nhìn thẳng) và motor cùng encoder không nằm ở tầng 2.
+
 ## Bắt đầu
 
 ### Biên dịch và nạp
