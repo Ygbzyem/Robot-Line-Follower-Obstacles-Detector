@@ -21,9 +21,3 @@ log*.txt
 *-backups/
 *.lck
 fp-info-cache
-
-# KiCad local files
-*.kicad_prl
-*-backups/
-*.lck
-fp-info-cache
