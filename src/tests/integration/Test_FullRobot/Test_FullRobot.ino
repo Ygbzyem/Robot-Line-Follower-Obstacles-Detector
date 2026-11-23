@@ -18,7 +18,7 @@
      START 18 | SET 17 | MODE 16 | Buzzer 15 (3-pin, 5V OK) | VBAT 4 (divider 100k/33k)
    3V3 SUPPLY (shield 3V3 rail): encoders, line sensor, MPU, OLED, VL53, TB6612 VCC+STBY
      -> NEVER take 5V from the G-5V-S headers for these modules.
-   2S battery -> BMS -> 5A fuse -> switch -> shield DC jack + TB6612 VM (+470uF +100nF)
+   2S battery -> protection board -> quick wire connector -> switch -> shield DC jack + TB6612 VM (+470uF +100nF)
    Full per-pin netlist: file Robot_Netlist_v4.pdf
    --------------------------------------------------------------------------------------
 
