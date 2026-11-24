@@ -1,6 +1,10 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.15 (25/11): from the 25/11 log: (1) hexagon Y detection only when the split is symmetric around the centered line, and extending hexagon
+                    mode no longer blocks square grid mode ('H' fired inside the square cluster -> grid mode off -> random loops); (2) pivots for the
+                    lower-torque gearbox: TURN_MIN 20 -> 26, stall kick after 80 ms (+20%/100 ms); (3) for 600 mm after going round a circle, 'running backward'
+                    needs 120 mm of evidence instead of 60 (2 wrong 'D' turns near the finish); (4) log distance column no longer stops at 32000 mm.
   VERSION C3.14 (25/11): longer 'wcal' for the new motors: 50% for 1.6 s, speed printed every 100 ms, vfull from the last 0.6 s only
                     (old 0.8 s / 60% run gave vfull 1027-1067, below the old motors - likely still accelerating). Needs 1.5 m clear ahead.
   VERSION C3.13 (21/11): = C3.11b + USER_CFG for the NEW MOTORS (gearbox ~20.7:1, both wheels cpr 576.3, ~1.4x faster):
@@ -153,7 +157,7 @@
 #define SSD1306_BLACK 0
 // Types are declared at the TOP of the file: the Arduino IDE generates function prototypes above, if the struct is below it reports 'does not name a type'
 struct Ev { float d; float t; char c; float h; uint8_t nb; };
-struct Tr { uint16_t t; int16_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uint16_t vl; int16_t h; uint8_t m; };
+struct Tr { uint16_t t; int32_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uint16_t vl; int16_t h; uint8_t m; };
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
@@ -169,7 +173,9 @@ const float ROBOT_HALF_W = 80;  // half the robot width (robot ~157 mm wide)
 const float REAR_MM = 35;       // robot tail behind the wheel axle
 const float OB_LONG = 205, OB_SHORT = 95;   // OBSTACLE = BRICK 205 x 95 x 95 mm
 const float CATCH_PCT = 38;     // speed right after touching the line on return
-const float TURN_MIN = 20, TURN_TOL = 3.0f, KP_T = 1.4f, KD_T = 0.07f;   // gyro-controlled turning
+const float TURN_MIN = 26,   // C3.15: 20 -> 26: the 20.7:1 gearbox stalled 0.3-0.5 s at the end of turns
+            TURN_TOL = 3.0f, KP_T = 1.4f, KD_T = 0.07f;   // gyro-controlled turning
+const float CIRC_NO_REV = 600; // C3.15: this far (mm) after going round a circle, 'running backward' needs 120 mm of evidence instead of 60
 const float HEX_GAP = 4;       // C3.11: white gap between the 2 branches (channels) ...
 const float HEX_SPLIT = 30;    // ... must appear within this many mm from the start of the junction
 const float HEX_GZ = 400;      // C3.11b: a Y-junction still counts as hexagon while the robot is curving (|gzSlow| < 400 deg/s, i.e. almost always). Previously 70 -> right after a bend into the hexagons
@@ -795,7 +801,7 @@ void drive(float l, float r) {
   if (l * r < 0 && fabsf(l) >= 10 && fabsf(r) >= 10) {
     uint32_t now = millis();
     if (fabsf(vL) > 30 || fabsf(vR) > 30) tKick = now;
-    else if (now - tKick > 150) kickB = max(kickB, min(30.0f, (now - tKick - 150) * 0.1f));
+    else if (now - tKick > 80) kickB = max(kickB, min(30.0f, (now - tKick - 80) * 0.2f));   // C3.15: start after 80 ms, +20%/100 ms (was 150 ms, +10%)
     l += l > 0 ? kickB : -kickB; r += r > 0 ? kickB : -kickB;
   } else { kickB = 0; tKick = millis(); }
   motorOne(0, l); motorOne(1, r);
@@ -1117,7 +1123,7 @@ void traceTick() {
   if (!tracing || millis() - tTr < 50) return;
   tTr = millis();
   Tr &r = tr[nTr % NTR]; nTr++;              // ring buffer: keeps the LAST 35 s (where the robot runs into trouble)
-  r.t = (millis() - tRun0) / 10; r.d = (int16_t)constrain(dist() - d0, -32000.0f, 32000.0f);
+  r.t = (millis() - tRun0) / 10; r.d = (int32_t)(dist() - d0);   // C3.15: int32 (int16 stuck at 32000 mm after 32 m)
   r.p = seen ? (int8_t)(posC * 10) : 127; r.v = (uint8_t)constrain(curSpd, 0.0f, 100.0f);
   r.ph = phase == '-' ? (junc ? 'J' : 'L') : phase; r.nb = nBlack; r.vl = vlMM; r.h = (int16_t)(heading() * 10); r.m = lineMask;
 }
@@ -1771,7 +1777,7 @@ void runCourse() {
   // main heading (hRef) (equal -> pref). Side branch -> bring the WHEEL AXLE to the junction CENTER then turn into the branch (log 'Q').
   // (before: the PID only passed the side branch for ~0.1 s -> missed the branch -> robot circled / ran backward depending on the cluster offset up or down)
   bool gridOn = false; float gridJ = -1e9; uint8_t clusterPref = 0;
-  int qMB = 0; float hexW = -1e9, hRefHex = 0, dCv = -1e9;   // C3.11 hexagon cluster: hexW = position of the last Y-junction, hRefHex = locked main heading
+  int qMB = 0; float hexW = -1e9, hRefHex = 0, dCv = -1e9, cvH0 = 0, dCircle = -1e9;   // C3.11 hexagon cluster: hexW = position of the last Y-junction, hRefHex = locked main heading
   float hexD = -1e9, sqCandD = -1e9; bool qPend = false; float qL = 0, qR = 0, qLc = 0, qD0 = 0, qD1 = 0, qH0 = 0; bool qFull = false; bool qFast = false;
   auto inSqCluster = [&]() { int n = 0; for (float x : jT) if (dist() - x < 500) n++; return n >= 2; };   // >= 2 junctions within 45 cm = inside a CLUSTER
   float lastRD = -1e9, lastLD = -1e9, lastBD = -1e9, lastShapeD = -1e9, lastRecD = -1e9;   // lastBD: both edges AT ONCE (real T-junction)   // v2.9.1: position (encoder) when a branch last touched the RIGHT / LEFT edge of the sensor bar
@@ -1851,7 +1857,14 @@ void runCourse() {
     if (junc && !wasJunc) { qL = qR = 0; qFull = false; qFast = false; qMB = 0; qLc = lineC; qD0 = dist(); qH0 = heading(); }
     if (junc) {
       if (b0s <= 1 && bLe >= 6) qFull = true;
-      if (nBlob >= 2 && bLs - b0e >= HEX_GAP && dist() - qD0 < HEX_SPLIT) qFast = true;   // C3.11: 2 branches SPLITTING FAST (60-degree angle) = hexagon Y-junction; 2 touching circles split very slowly
+      // C3.15: a real hexagon Y splits SYMMETRICALLY around the line the robot was centered on. In the square cluster the
+      //  bar sometimes sees two lines at both edges (corner crossed at an angle, right after a search) -> was taken for a Y
+      //  ('H' inside the square cluster) -> square grid mode blocked -> random loops. Now: line centered before the junction,
+      //  one branch on each side of it, at similar distances.
+      if (nBlob >= 2 && bLs - b0e >= HEX_GAP && dist() - qD0 < HEX_SPLIT && fabsf(qLc) < 1.5f) {
+        float c0 = 0.5f * (b0s + b0e) - 3.5f, cL = 0.5f * (bLs + bLe) - 3.5f;
+        if (c0 < qLc - 1.2f && cL > qLc + 1.2f && fabsf((qLc - c0) - (cL - qLc)) < 2.0f) qFast = true;
+      }   // C3.11: 2 branches SPLITTING FAST (60-degree angle) = hexagon Y-junction; 2 touching circles split very slowly
       qMB = max(qMB, nBlob);
       // C3.5: at a PERPENDICULAR T (black covers the whole bar, 1 trace) on the main heading = may be the ENTRY of a square cluster -> side chosen by pclust
       if (qFull && qMB == 1 && fabsf(wrap180(heading() - hRef)) < 30.0f && dist() - hexD > 600.0f) sqCandD = dist();
@@ -1864,7 +1877,7 @@ void runCourse() {
       // C3.11b: the previous version used hRef - hRef stands still while curving (|gz| > 40) -> entering the hexagons RIGHT AFTER A BEND made the main heading = heading BEFORE the bend (wrong) -> wrong compensation -> circling
       hexW = hexD = dist(); gridOn = false;
     }
-    if (junc && dist() - hexW < HEX_MM) hexW = hexD = dist();   // inside the cluster: every junction (even one showing only 1 branch) extends hexagon mode
+    if (junc && dist() - hexW < HEX_MM) hexW = dist();   // inside the cluster: every junction extends hexagon mode (C3.15: hexW only - hexD blocks square grid mode, set only by a real Y)
     if (!junc && wasJunc && cfg.clusterMode && cfg.jMode && !inAvoid && fabsf(gzSlow) < 70.0f && dist() - qD0 < 90.0f) {
       // C3.4: PERPENDICULAR T (black covers the whole bar, 1 trace - not splitting into 2 branches) on the main heading = ENTERING A SQUARE CLUSTER.
       //       Y-junction (black covering the bar then SPLITTING into 2 diagonal branches) = HEXAGON / honeycomb -> NOT latched in the grid for 60 cm (beyond the hexagon frame)
@@ -1957,7 +1970,8 @@ void runCourse() {
     // C3.11 HEXAGON: like the square cluster (gridH) - inside the cluster LOCK the main heading = heading when entering, do NOT let hRef drift along the hexagon edges
     //  (edges 12-17 cm long, robot drives straight > 400 ms -> the old hRef drifted along the slanted edge -> lost the left/right compensation -> circled one cell).
     // curving CONTINUOUSLY > HEX_CV mm = circle (hexagon edges are straight, the 60-degree corners are short) -> temporarily disable hexagon mode (the circle-exit rule runs again)
-    if (fabsf(gzSlow) < CIRC_GZ) dCv = -1e9; else if (dCv < -1e8) dCv = dist();
+    if (fabsf(gzSlow) < CIRC_GZ) dCv = -1e9; else if (dCv < -1e8) { dCv = dist(); cvH0 = heading(); }
+    else if (fabsf(heading() - cvH0) >= 200.0f) dCircle = dist();   // C3.15: curved continuously >= 200 deg = went round a circle
     hexG = cfg.clusterMode && cfg.jMode && dist() - hexW < HEX_MM && !(dCv > -1e8 && dist() - dCv > HEX_CV);
     if (hexG) hRef = hRefHex;
     else if (seen && !junc && millis() - tStraight > 400 && !inCluster() && fabsf(gz) < 40.0f) hRef += wrap180(heading() - hRef) * min(1.0f, dt * 5.0f);
@@ -1975,7 +1989,10 @@ void runCourse() {
     if (seen && !junc && fabsf(posC) < 1.5f) {   // C3: record the driven path + detect RUNNING BACKWARD on the old path (>= 60 mm)
       crumbAdd();
       static uint8_t revFix = 0; if (d < 50) revFix = 0;
-      if (nRev >= 3 && revFix < 4) {
+      // C3.15: right after going round a circle the old path crosses itself -> 'running backward' fired by mistake and turned
+      //  the robot away from the finish (log: 2 'D' in a row, ~4.5 s lost). For CIRC_NO_REV mm after a circle it now needs
+      //  120 mm (6 crumbs) on the old path instead of 60 mm. (Skipping the check entirely broke real U-turns after a circle.)
+      if (nRev >= (dist() - dCircle > CIRC_NO_REV ? 3 : 6) && revFix < 4) {
         revFix++; nRev = 0; logEv('D'); phase = 'D';
         Serial.println("!! RUNNING BACKWARD on the path just driven -> turning 180");
         int sd = lastPos > 0 ? 1 : -1;
@@ -2773,7 +2790,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.14 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.15 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
@@ -2806,7 +2823,7 @@ template <class F> void writeLog(F out) {
     const Tr &r = tr[i % NTR]; char ps[8];
     if (r.p == 127) snprintf(ps, sizeof ps, "  -- "); else snprintf(ps, sizeof ps, "%+5.1f", r.p / 10.0f);
     char mk[9]; for (int k = 0; k < 8; k++) mk[k] = (r.m >> k) & 1 ? '#' : '.'; mk[8] = 0;
-    snprintf(b, sizeof b, "%6.2f %6d %s %3u %c %u %4u %+7.1f %s\n", r.t / 100.0f, r.d, ps, r.v, r.ph, r.nb, r.vl > 2000 ? 0 : r.vl, r.h / 10.0f, mk); out(b);
+    snprintf(b, sizeof b, "%6.2f %6ld %s %3u %c %u %4u %+7.1f %s\n", r.t / 100.0f, (long)r.d, ps, r.v, r.ph, r.nb, r.vl > 2000 ? 0 : r.vl, r.h / 10.0f, mk); out(b);
   }
 }
 struct WebPar { const char* k; float* f; int* i; };
