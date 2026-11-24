@@ -1,6 +1,8 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.14 (25/11): longer 'wcal' for the new motors: 50% for 1.6 s, speed printed every 100 ms, vfull from the last 0.6 s only
+                    (old 0.8 s / 60% run gave vfull 1027-1067, below the old motors - likely still accelerating). Needs 1.5 m clear ahead.
   VERSION C3.13 (21/11): = C3.11b + USER_CFG for the NEW MOTORS (gearbox ~20.7:1, both wheels cpr 576.3, ~1.4x faster):
                     cpr 576.3, vfull 1640 (estimate - run 'wcal'), speed percentages x 0.71 (cspd 38, vclust 25 (simulation: 28 -> square cluster worse), vout/vpar 49, vret 42, vturn 49),
                     kp 10.2, kd 0.39, sp 80. After flashing: 'reset' (loads USER_CFG) -> 'cal' -> 'wcal' -> 'lag'.
@@ -2277,22 +2279,36 @@ void runCourse() {
 // v3.2 WHEEL SPEED MEASUREMENT (command wcal): the robot drives STRAIGHT at 60% (direct PWM) ~0.8 s on the floor (needs ~50 cm clear),
 // measure both wheel speeds once steady -> vfull = speed at 100%. The weaker wheel shows clearly (%).
 void wheelCal() {
-  wifiStop(); uiBusy("WHEEL CAL", "PUT ROBOT ON FLOOR", "50 cm clear ahead");
-  Serial.println("\nWCAL: robot on the FLOOR, >= 50 cm clear ahead. Starting in 2 s...");
+  // C3.14: with the new motors (gearbox ~20.7:1) the old 0.8 s run at 60% gave vfull 1027-1067, lower than the
+  // old motors although the bench test shows them ~35% faster; the robot is probably still accelerating there.
+  // Now: 50% PWM for 1.6 s, print the speed every 100 ms, average only the last 0.6 s (steady speed).
+  wifiStop(); uiBusy("WHEEL CAL", "PUT ROBOT ON FLOOR", "1.5 m clear ahead");
+  Serial.println("\nWCAL: robot on the FLOOR, >= 1.5 m clear ahead. Starting in 2 s...");
   beep(2); delay(2000);
-  float sL = 0, sR = 0; int n = 0; uint32_t t0 = millis(); aborted = false;
-  while (millis() - t0 < 800 && !aborted) {
-    update(); drive(60, 60);
-    if (millis() - t0 > 350) { sL += vL; sR += vR; n++; }
+  const float PCT = 50.0f; const uint32_t RUN_MS = 1600, AVG_FROM = 1000, MID = 1300;
+  float sL = 0, sR = 0, s1 = 0, s2 = 0; int n = 0, n1 = 0, n2 = 0; float pL = 0, pR = 0; int pn = 0;
+  uint32_t t0 = millis(), tP = 0; aborted = false;
+  Serial.println("  t(ms)  left  right (mm/s)");
+  while (millis() - t0 < RUN_MS && !aborted) {
+    update(); drive(PCT, PCT);
+    uint32_t t = millis() - t0;
+    pL += vL; pR += vR; pn++;
+    if (t - tP >= 100) { Serial.printf("  %5lu %5.0f %6.0f\n", (unsigned long)t, pL / pn, pR / pn); pL = pR = 0; pn = 0; tP = t; }
+    if (t > AVG_FROM) {
+      sL += vL; sR += vR; n++;
+      if (t < MID) { s1 += vL + vR; n1++; } else { s2 += vL + vR; n2++; }
+    }
     delay(2);
   }
   brake(); delay(150); coast();
   if (n < 10) { Serial.println("!! Stopped midway"); return; }
   float a = sL / n, b = sR / n;
-  Serial.printf("At 60%%: LEFT wheel %.0f mm/s, RIGHT %.0f mm/s (diff %.0f%%)\n", a, b, 100.0f * (a - b) / max(1.0f, (a + b) / 2));
+  Serial.printf("At %.0f%%: LEFT wheel %.0f mm/s, RIGHT %.0f mm/s (diff %.0f%%)\n", PCT, a, b, 100.0f * (a - b) / max(1.0f, (a + b) / 2));
+  if (n1 > 5 && n2 > 5 && s2 / n2 > 1.05f * (s1 / n1))
+    Serial.println("!! Speed still rising at the end -> vfull may be a bit low (clear more space or check for wheel slip)");
   char l1[24], l2[24]; snprintf(l1, sizeof l1, "L %.0f  R %.0f mm/s", a, b);
   if (a < 50 || b < 50) { Serial.println("!! Wheels not turning / encoder wrong direction (check 'cprcnt', sgnL/sgnR) -> NOT saved"); uiBusy("WHEEL CAL ERROR", l1, "check encoder"); beep(1, 600); delay(1500); return; }
-  cfg.vfull = (a + b) / 2 / 0.6f; cfgSave();
+  cfg.vfull = (a + b) / 2 / (PCT / 100.0f); cfgSave();
   snprintf(l2, sizeof l2, "vfull %.0f  SAVED", cfg.vfull); uiBusy("WHEEL CAL OK", l1, l2);
   Serial.printf("=> SAVED vfull %.0f mm/s (100%%). Wheel speed PID: %s\n", cfg.vfull, cfg.wpid ? "ON" : "OFF (type wpid 1)");
   beep(3); delay(1500);
@@ -2757,7 +2773,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.13 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.14 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
