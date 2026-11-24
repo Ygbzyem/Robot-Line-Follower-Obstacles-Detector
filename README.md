@@ -77,8 +77,10 @@ line-follower-robot/
 │   ├── hardware/
 │   │   ├── components.md                  # parts, prices, shops
 │   │   └── pinout.md
-│   └── testing/
-│       └── test_plan.md                   # bring-up order and pass criteria
+│   ├── testing/
+│   │   └── test_plan.md                   # bring-up order and pass criteria
+│   └── tuning/
+│       └── README.md                      # every tuning command, its value and when to change it
 │
 ├── hardware/
 │   └── schematics/
@@ -202,6 +204,8 @@ On PowerShell: `$env:PLATFORMIO_SRC_DIR="src/tests/hardware/Test_LineSensor"; pi
 - **Wi-Fi page**: when idle the robot opens the access point `LINE-ROBOT`; browse to `192.168.4.1` for results, event log, parameter editing and `log.txt`.
 
 Command names of earlier builds are still accepted, so exported parameter lines from those builds load unchanged.
+
+Every command, its current value and when to change it: [docs/tuning/README.md](docs/tuning/README.md).
 
 ## Known Issues
 

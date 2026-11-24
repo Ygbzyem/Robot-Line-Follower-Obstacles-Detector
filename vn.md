@@ -77,8 +77,10 @@ line-follower-robot/
 │   ├── hardware/
 │   │   ├── components.md                  # linh kiện, giá, nơi mua
 │   │   └── pinout.md
-│   └── testing/
-│       └── test_plan.md                   # thứ tự kiểm tra và tiêu chí đạt
+│   ├── testing/
+│   │   └── test_plan.md                   # thứ tự kiểm tra và tiêu chí đạt
+│   └── tuning/
+│       └── README.md                      # từng lệnh chỉnh thông số, giá trị và khi nào chỉnh
 │
 ├── hardware/
 │   └── schematics/
@@ -204,6 +206,8 @@ Trên PowerShell: `$env:PLATFORMIO_SRC_DIR="src/tests/hardware/Test_LineSensor";
 - **Trang Wi-Fi**: khi đứng yên xe phát Wi-Fi `LINE-ROBOT`; vào `192.168.4.1` để xem kết quả, nhật ký sự kiện, sửa thông số và tải `log.txt`.
 
 Firmware vẫn nhận tên lệnh của các bản trước, nên dòng thông số xuất từ bản cũ vẫn nạp được.
+
+Giải thích từng lệnh, giá trị hiện tại và khi nào nên chỉnh: [docs/tuning/vn.md](docs/tuning/vn.md).
 
 ## Lỗi đã biết
 
