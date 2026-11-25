@@ -1,6 +1,7 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.18 (25/11): OLED speed buttons stop at the limit (sp 80, vmax 100); before, 73 + 3 x 10 gave vmax 103.
   VERSION C3.17 (25/11): tuning WITHOUT the USB cable: the web page (WiFi LINE-ROBOT, 192.168.4.1) gets a COMMAND box that sets any parameter
                     ("vmax 80;alat 4500", name-value pairs only) and shows the full parameter line (same as 'export') to copy from the phone.
                     'wcal' now measures at 40 % and 80 % (the 25/11 run at 50/80 gave dband 33.4 / vfull 1645: the curve bends below 60 %, so the
@@ -2110,7 +2111,7 @@ void runCourse() {
 
         // At high speed let the inner wheel reverse flexibly with lookAheadE (from -15% to -37% spd)
         // so the arc radius R shrinks automatically when the robot dives fast into a 90-degree corner!
-        float maxOuter = constrain(spd * 1.32f + 12.0f, 48.0f, 88.0f);
+        float maxOuter = constrain(spd * 1.32f + 12.0f, 48.0f, 88.0f);   // NOTE: 88 % also caps the STRAIGHT speed (vmax above 88 changes nothing)
         float innerBack = (cfg.pivE > 0 && lookAheadE >= cfg.pivE)
                           ? (0.15f + 0.22f * min(1.0f, (lookAheadE - cfg.pivE) / 1.5f))
                           : 0.06f;
@@ -2821,7 +2822,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.17 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.18 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
@@ -3026,8 +3027,8 @@ void uiButton(int b) {
   if (b == 2) { page = (page + 1) % NPAGE; dirty = true; digitalWrite(PIN_BUZ, HIGH); delay(8); digitalWrite(PIN_BUZ, LOW); return; }
   // SET: action for the current page
   switch (page) {
-    case P_SPEED: cfg.base = cfg.base >= 80 ? 20 : cfg.base + 10; cfgSave(); break;
-    case P_VMAX:  cfg.vmax = cfg.vmax >= 100 ? 30 : cfg.vmax + 10; cfgSave(); break;
+    case P_SPEED: cfg.base = cfg.base >= 80 ? 20 : min(80, cfg.base + 10); cfgSave(); break;
+    case P_VMAX:  cfg.vmax = cfg.vmax >= 100 ? 30 : min(100, cfg.vmax + 10); cfgSave(); break;   // C3.18: 73 -> 83 -> 93 -> 100 (was 103)
     case P_CAL:   calibrate(); break;
     case P_AVOID: cfg.side ^= 1; cfgSave(); break;
     case P_WIFI:  cfg.wifi ^= 1; cfgSave(); if (!cfg.wifi) wifiStop(); break;
