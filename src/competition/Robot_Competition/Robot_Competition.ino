@@ -1,6 +1,16 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.17 (25/11): tuning WITHOUT the USB cable: the web page (WiFi LINE-ROBOT, 192.168.4.1) gets a COMMAND box that sets any parameter
+                    ("vmax 80;alat 4500", name-value pairs only) and shows the full parameter line (same as 'export') to copy from the phone.
+                    'wcal' now measures at 40 % and 80 % (the 25/11 run at 50/80 gave dband 33.4 / vfull 1645: the curve bends below 60 %, so the
+                    feed-forward gave ~30 % too much speed at cluster / inner-wheel speeds). Default dband 25: fits the floor test from 40 to 100 %.
+  VERSION C3.16 (25/11): from the Test_WheelSpeed floor run (40/60/80/100 % -> 330/695/1150/1583 mm/s, no motion below ~28 % PWM):
+                    (1) 'wcal' measures at 50 % AND 80 % and fits a line -> real vfull (the old 50 % x 2 read ~35 % low: 1027-1131 instead of ~1580)
+                    plus the start-up dead band 'dband' (new parameter, %); (2) wheel speed PID feed-forward = dband + pct x (100 - dband) / 100, so the PID
+                    no longer has to pull the dead band itself (faster response in and out of bends); (3) TURN_MIN 26 -> 32 (was below the dead band);
+                    (4) USER_CFG: vfull 1583, dband 28.5 and the C3.11b percentages x 0.731 (= 1158 / 1583) -> same REAL speeds and steering as C3.11b
+                    (vclust 22). Simulation with the dead band (vs C3.15 at vfull 1131): same success rate, ~20-30 % less time.
   VERSION C3.15 (25/11): from the 25/11 log: (1) hexagon Y detection only when the split is symmetric around the centered line, and extending hexagon
                     mode no longer blocks square grid mode ('H' fired inside the square cluster -> grid mode off -> random loops); (2) pivots for the
                     lower-torque gearbox: TURN_MIN 20 -> 26, stall kick after 80 ms (+20%/100 ms); (3) for 600 mm after going round a circle, 'running backward'
@@ -89,7 +99,7 @@
     Several commands at once: kp 12;kd 0.4;sp 70  (separated by ;)
   v3.2 SMOOTH RUN (simulation: 7-20% faster, wobble around the line ~20% lower, clusters 52/52):
     - PER-WHEEL SPEED PID (encoder): both wheels turn at the commanded speed even with a weak wheel / sagging battery. Measure once:
-        command 'wcal' OR press SET on the INFO page (page 8) -> the robot drives straight ~40 cm, saves 'vfull'.
+        command 'wcal' OR press SET on the INFO page (page 8) -> the robot drives straight ~2 m (50 % then 80 %), saves 'vfull' and 'dband'.
         Not measured -> the robot runs exactly like v3.1. Off: wpid 0.  Gains: wkp 1.5, wki 6.
     - SENSOR LAG COMPENSATION (slow photoresistor bar): 'lag' = latency (ms) measured with Test_LineSensor (START -> res). Default 15.
         Fast sensor (QTR/TCRT): lag 5. Off: lag 0.
@@ -161,7 +171,7 @@ struct Tr { uint16_t t; int32_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uin
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
-const char* USER_CFG = "kp 10.2;kd 0.39;sp 80;vmax 100;cspd 38;vfast 100;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 58;aback 65;out 76;par 500;vout 49;vpar 49;vret 42;vturn 49;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1640;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 25;pclust 2";   // 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
+const char* USER_CFG = "kp 10.6;kd 0.4;sp 58;vmax 73;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 58;aback 65;out 76;par 500;vout 51;vpar 51;vret 44;vturn 51;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 25/11: vfull 1583 + dband 28.5 measured on the floor, C3.11b percentages x 0.731 (vclust 22 = 348 mm/s: simulation with the dead band preferred slower in the square cluster) | 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
 // ================= EDIT HERE =================
 bool REV_L = true;     // LEFT motor reversed (confirmed)
 bool REV_R = false;
@@ -173,7 +183,7 @@ const float ROBOT_HALF_W = 80;  // half the robot width (robot ~157 mm wide)
 const float REAR_MM = 35;       // robot tail behind the wheel axle
 const float OB_LONG = 205, OB_SHORT = 95;   // OBSTACLE = BRICK 205 x 95 x 95 mm
 const float CATCH_PCT = 38;     // speed right after touching the line on return
-const float TURN_MIN = 26,   // C3.15: 20 -> 26: the 20.7:1 gearbox stalled 0.3-0.5 s at the end of turns
+const float TURN_MIN = 32,   // C3.16: 26 -> 32 (loaded robot does not move below ~28 % PWM) | C3.15: 20 -> 26: the 20.7:1 gearbox stalled 0.3-0.5 s at the end of turns
             TURN_TOL = 3.0f, KP_T = 1.4f, KD_T = 0.07f;   // gyro-controlled turning
 const float CIRC_NO_REV = 600; // C3.15: this far (mm) after going round a circle, 'running backward' needs 120 mm of evidence instead of 60
 const float HEX_GAP = 4;       // C3.11: white gap between the 2 branches (channels) ...
@@ -810,11 +820,14 @@ void drive(float l, float r) {
 // measured by the encoders -> both wheels turn at the RIGHT speed: a weak wheel / sagging battery / different friction does not pull the robot aside, faster acceleration.
 float wiL = 0, wiR = 0; uint32_t tDV = 0;
 bool wpidOk() { return cfg.wpid && cfg.vfull > 100; }
+float dBand = 25.0f;   // C3.16: PWM % below which the loaded robot does not move (measured by 'wcal', stored apart from cfg: key "db")
+// C3.16: measured speed is a straight line above the dead band: v = vfull x (PWM - dband) / (100 - dband) -> PWM needed for pct
+float feedFwd(float pct) { return fabsf(pct) < 1 ? pct : (pct > 0 ? 1 : -1) * (dBand + fabsf(pct) * (100.0f - dBand) / 100.0f); }
 float wheelPid(float pct, float v, float &integ, float dt) {
   if (pct * integ < 0 || fabsf(pct) < 1) integ = 0;            // direction change / stop -> clear the integral
   float err = (pct * cfg.vfull / 100.0f - v) * 100.0f / cfg.vfull;   // speed mismatch as %
   integ = constrain(integ + cfg.wki * err * dt, -25.0f, 25.0f);
-  return pct + cfg.wkp * err + integ;
+  return feedFwd(pct) + cfg.wkp * err + integ;
 }
 void driveV(float l, float r) {
   if (!wpidOk()) { drive(l, r); return; }
@@ -2293,41 +2306,52 @@ void runCourse() {
   if (fin && FIN_SONG) playBirthday(); else beep(fin ? 3 : 1, fin ? 70 : 400);
 }
 // ---------- serial ----------
-// v3.2 WHEEL SPEED MEASUREMENT (command wcal): the robot drives STRAIGHT at 60% (direct PWM) ~0.8 s on the floor (needs ~50 cm clear),
-// measure both wheel speeds once steady -> vfull = speed at 100%. The weaker wheel shows clearly (%).
+// WHEEL SPEED MEASUREMENT (command wcal): the robot drives STRAIGHT on the floor at direct PWM -> vfull = speed at 100%, dband = dead band.
+// The weaker wheel shows clearly (%).
 void wheelCal() {
-  // C3.14: with the new motors (gearbox ~20.7:1) the old 0.8 s run at 60% gave vfull 1027-1067, lower than the
-  // old motors although the bench test shows them ~35% faster; the robot is probably still accelerating there.
-  // Now: 50% PWM for 1.6 s, print the speed every 100 ms, average only the last 0.6 s (steady speed).
-  wifiStop(); uiBusy("WHEEL CAL", "PUT ROBOT ON FLOOR", "1.5 m clear ahead");
-  Serial.println("\nWCAL: robot on the FLOOR, >= 1.5 m clear ahead. Starting in 2 s...");
+  // C3.16: TWO-POINT measurement. Above the start-up dead band the speed is a straight line of PWM (floor test 25/11:
+  // 40/60/80/100 % -> 330/695/1150/1583 mm/s, nothing below ~28 %), so 50 % x 2 read ~35 % low. Now: 50 % for 1.0 s, then 80 % for 1.3 s,
+  // (C3.17: 40 % instead of 50 %) average the last 0.4 s of each, fit the line -> vfull (speed at 100 %) and dband (% where the line hits 0). Needs ~2.5 m clear ahead.
+  wifiStop(); uiBusy("WHEEL CAL", "PUT ROBOT ON FLOOR", "2.5 m clear ahead");
+  Serial.println("\nWCAL: robot on the FLOOR, >= 2.5 m clear ahead. Starting in 2 s...");
   beep(2); delay(2000);
-  const float PCT = 50.0f; const uint32_t RUN_MS = 1600, AVG_FROM = 1000, MID = 1300;
-  float sL = 0, sR = 0, s1 = 0, s2 = 0; int n = 0, n1 = 0, n2 = 0; float pL = 0, pR = 0; int pn = 0;
-  uint32_t t0 = millis(), tP = 0; aborted = false;
-  Serial.println("  t(ms)  left  right (mm/s)");
-  while (millis() - t0 < RUN_MS && !aborted) {
-    update(); drive(PCT, PCT);
-    uint32_t t = millis() - t0;
-    pL += vL; pR += vR; pn++;
-    if (t - tP >= 100) { Serial.printf("  %5lu %5.0f %6.0f\n", (unsigned long)t, pL / pn, pR / pn); pL = pR = 0; pn = 0; tP = t; }
-    if (t > AVG_FROM) {
-      sL += vL; sR += vR; n++;
-      if (t < MID) { s1 += vL + vR; n1++; } else { s2 += vL + vR; n2++; }
+  // C3.17: 50 -> 40 % (the speed curve bends below ~60 %: 50/80 gave dband 33 -> too much PWM at low speed)
+  const float P[2] = {40.0f, 80.0f}; const uint32_t RUN_MS[2] = {1100, 1400}, AVG_MS = 400;
+  float spd[2][2]; aborted = false;
+  Serial.println("  pct  t(ms)  left  right (mm/s)");
+  for (int k = 0; k < 2; k++) {
+    float sL = 0, sR = 0, s1 = 0, s2 = 0, pL = 0, pR = 0; int n = 0, n1 = 0, n2 = 0, pn = 0;
+    uint32_t t0 = millis(), tP = 0;
+    while (millis() - t0 < RUN_MS[k] && !aborted) {
+      update(); drive(P[k], P[k]);
+      uint32_t t = millis() - t0;
+      pL += vL; pR += vR; pn++;
+      if (t - tP >= 100) { Serial.printf("  %3.0f  %5lu %5.0f %6.0f\n", P[k], (unsigned long)t, pL / pn, pR / pn); pL = pR = 0; pn = 0; tP = t; }
+      if (t > RUN_MS[k] - AVG_MS) {
+        sL += vL; sR += vR; n++;
+        if (t < RUN_MS[k] - AVG_MS / 2) { s1 += vL + vR; n1++; } else { s2 += vL + vR; n2++; }
+      }
+      delay(2);
     }
-    delay(2);
+    if (n < 10) { brake(); delay(150); coast(); Serial.println("!! Stopped midway -> NOT saved"); return; }
+    spd[k][0] = sL / n; spd[k][1] = sR / n;
+    Serial.printf("At %.0f%%: LEFT %.0f mm/s, RIGHT %.0f mm/s (diff %.0f%%)\n", P[k], spd[k][0], spd[k][1],
+                  100.0f * (spd[k][0] - spd[k][1]) / max(1.0f, (spd[k][0] + spd[k][1]) / 2));
+    if (n1 > 5 && n2 > 5 && s2 / n2 > 1.03f * (s1 / n1)) Serial.printf("!! Speed still rising at %.0f%% -> result a bit low (more space? wheel slip?)\n", P[k]);
   }
-  brake(); delay(150); coast();
-  if (n < 10) { Serial.println("!! Stopped midway"); return; }
-  float a = sL / n, b = sR / n;
-  Serial.printf("At %.0f%%: LEFT wheel %.0f mm/s, RIGHT %.0f mm/s (diff %.0f%%)\n", PCT, a, b, 100.0f * (a - b) / max(1.0f, (a + b) / 2));
-  if (n1 > 5 && n2 > 5 && s2 / n2 > 1.05f * (s1 / n1))
-    Serial.println("!! Speed still rising at the end -> vfull may be a bit low (clear more space or check for wheel slip)");
-  char l1[24], l2[24]; snprintf(l1, sizeof l1, "L %.0f  R %.0f mm/s", a, b);
-  if (a < 50 || b < 50) { Serial.println("!! Wheels not turning / encoder wrong direction (check 'cprcnt', sgnL/sgnR) -> NOT saved"); uiBusy("WHEEL CAL ERROR", l1, "check encoder"); beep(1, 600); delay(1500); return; }
-  cfg.vfull = (a + b) / 2 / (PCT / 100.0f); cfgSave();
-  snprintf(l2, sizeof l2, "vfull %.0f  SAVED", cfg.vfull); uiBusy("WHEEL CAL OK", l1, l2);
-  Serial.printf("=> SAVED vfull %.0f mm/s (100%%). Wheel speed PID: %s\n", cfg.vfull, cfg.wpid ? "ON" : "OFF (type wpid 1)");
+  brake(); delay(200); coast();
+  char l1[24], l2[24];
+  float a = 0.5f * (spd[0][0] + spd[0][1]), b = 0.5f * (spd[1][0] + spd[1][1]);
+  snprintf(l1, sizeof l1, "%.0f / %.0f mm/s", a, b);
+  float slope = (b - a) / (P[1] - P[0]), db = slope > 1 ? P[0] - a / slope : -1, vf = slope * (100.0f - db);
+  if (min(spd[0][0], spd[0][1]) < 50 || db < 0 || db > 50 || vf < 300) {
+    Serial.printf("!! Odd result (slope %.1f mm/s per %%, dband %.1f) -> wheels not turning / encoder direction ('cprcnt', sgnL/sgnR) -> NOT saved\n", slope, db);
+    uiBusy("WHEEL CAL ERROR", l1, "check encoder"); beep(1, 600); delay(1500); return;
+  }
+  cfg.vfull = vf; cfgSave(); dBand = db; prefs.putFloat("db", dBand);
+  snprintf(l2, sizeof l2, "vfull %.0f db %.0f", cfg.vfull, dBand); uiBusy("WHEEL CAL OK", l1, l2);
+  Serial.printf("=> SAVED vfull %.0f mm/s (100%%), dband %.1f %%. Wheel speed PID: %s\n", cfg.vfull, dBand, cfg.wpid ? "ON" : "OFF (type wpid 1)");
+  Serial.println("   vfull changed a lot? the speed / kp / kd percentages now mean different real speeds -> scale them by old vfull / new vfull");
   beep(3); delay(1500);
 }
 void info() {
@@ -2341,8 +2365,8 @@ void info() {
   Serial.printf("mask %d (manual off:", cfg.maskBits);
   bool any = false; for (int i = 0; i < 8; i++) if (cfg.maskBits >> i & 1) { Serial.printf(" D%d", i + 1); any = true; }
   Serial.printf("%s) | auto %d (auto-disable stuck channels while running) | jmode %d | cspd %.0f | fgo %.0f (stop mid finish box)\n", any ? "" : " no", cfg.noAuto ? 0 : 1, cfg.jMode, cfg.cornerSpd, cfg.finGo);
-  Serial.printf("v3.2+: lag %.0f ms | wpid %d (%s) vfull %.0f wkp %.2f wki %.1f | alat %.0f | curve %d (%s)\n", cfg.sdly, cfg.wpid,
-    wpidOk() ? "RUNNING" : cfg.wpid ? "NO wcal -> not active" : "off", cfg.vfull, cfg.wkp, cfg.wki, cfg.alat, cfg.curveOld ? 0 : 1, cfg.curveOld ? "curves like 90-degree corners" : "curve: straight + turn now");
+  Serial.printf("v3.2+: lag %.0f ms | wpid %d (%s) vfull %.0f dband %.1f wkp %.2f wki %.1f | alat %.0f | curve %d (%s)\n", cfg.sdly, cfg.wpid,
+    wpidOk() ? "RUNNING" : cfg.wpid ? "NO wcal -> not active" : "off", cfg.vfull, dBand, cfg.wkp, cfg.wki, cfg.alat, cfg.curveOld ? 0 : 1, cfg.curveOld ? "curves like 90-degree corners" : "curve: straight + turn now");
   Serial.printf("v3.6 cornering: brake %.2f | kpb %.2f | piv %.1f %s | uturn %d | avscan %d | jnmode %d | cluster %d | vclust %d | pclust %d\n", cfg.brakeK, cfg.kpBoost, cfg.pivE, cfg.pivE > 0 ? "(pivot when near the edge)" : "(off)", cfg.cornerMode, cfg.avScan, cfg.jnMode, cfg.clusterMode, cfg.vCluster, cfg.pCluster);
 }
 void i2cScan() {
@@ -2355,16 +2379,22 @@ void doCmd(String s);
 // v3.3 EXPORT PARAMETERS: print 1 line containing ALL current parameters. Copy that line:
 //   - paste it back into the Serial Monitor (1 line, Enter) -> everything is reloaded
 //   - send it to whoever writes the code -> paste into USER_CFG at the top -> the new code defaults = your parameters
+// C3.17: the parameter line is built once, printed on Serial ('export') and shown on the web page (no USB cable on the track)
+String cfgLine() {
+  char b[1100]; int n = 0;
+  n += snprintf(b + n, sizeof b - n, "kp %g;kd %g;sp %d;vmax %d;cspd %g;vfast %g;mpre %g;tlead %g;jmode %d;pref %d;mask %d;auto %d;",
+    cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cornerSpd, cfg.mFast, cfg.mPre, cfg.turnLead, cfg.jMode, cfg.pref, cfg.maskBits, cfg.noAuto ? 0 : 1);
+  n += snprintf(b + n, sizeof b - n, "cpr %g;wheel %g;track %g;sens %g;fin %g;fgo %g;vk %g;",
+    cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin, cfg.finGo, cfg.vcal);
+  n += snprintf(b + n, sizeof b - n, "obs %g;lat %g;pass %g;nobs %d;side %d;avmode %d;aout %g;aback %g;out %g;par %g;vout %g;vpar %g;vret %g;vturn %g;retm %d;",
+    cfg.obs, cfg.lat, cfg.pass, cfg.nobs, cfg.side, cfg.avMode, cfg.aout, cfg.aback, cfg.outMm, cfg.parMm, cfg.spdOut, cfg.spdPar, cfg.spdRet, cfg.spdTurn, cfg.retMode);
+  snprintf(b + n, sizeof b - n, "brev %g;bms %g;dec %g;roled %d;wifi %d;lag %g;wpid %d;wkp %g;wki %g;alat %g;vfull %g;curve %d;brake %g;kpb %g;piv %g;uturn %d;avscan %d;jnmode %d;cluster %d;vclust %d;pclust %d;dband %g",
+    cfg.brkRev, cfg.brkMs, cfg.decMm, cfg.runOled, cfg.wifi, cfg.sdly, cfg.wpid, cfg.wkp, cfg.wki, cfg.alat, cfg.vfull, cfg.curveOld ? 0 : 1, cfg.brakeK, cfg.kpBoost, cfg.pivE, cfg.cornerMode, cfg.avScan, cfg.jnMode, cfg.clusterMode, cfg.vCluster, cfg.pCluster, dBand);
+  return String(b);
+}
 void exportCfg() {
   Serial.println("\n== CURRENT PARAMETERS (copy the WHOLE line below, paste it back here to load; or paste into USER_CFG at the top of the code) ==");
-  Serial.printf("kp %g;kd %g;sp %d;vmax %d;cspd %g;vfast %g;mpre %g;tlead %g;jmode %d;pref %d;mask %d;auto %d;",
-    cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cornerSpd, cfg.mFast, cfg.mPre, cfg.turnLead, cfg.jMode, cfg.pref, cfg.maskBits, cfg.noAuto ? 0 : 1);
-  Serial.printf("cpr %g;wheel %g;track %g;sens %g;fin %g;fgo %g;vk %g;",
-    cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin, cfg.finGo, cfg.vcal);
-  Serial.printf("obs %g;lat %g;pass %g;nobs %d;side %d;avmode %d;aout %g;aback %g;out %g;par %g;vout %g;vpar %g;vret %g;vturn %g;retm %d;",
-    cfg.obs, cfg.lat, cfg.pass, cfg.nobs, cfg.side, cfg.avMode, cfg.aout, cfg.aback, cfg.outMm, cfg.parMm, cfg.spdOut, cfg.spdPar, cfg.spdRet, cfg.spdTurn, cfg.retMode);
-  Serial.printf("brev %g;bms %g;dec %g;roled %d;wifi %d;lag %g;wpid %d;wkp %g;wki %g;alat %g;vfull %g;curve %d;brake %g;kpb %g;piv %g;uturn %d;avscan %d;jnmode %d;cluster %d;vclust %d;pclust %d\n",
-    cfg.brkRev, cfg.brkMs, cfg.decMm, cfg.runOled, cfg.wifi, cfg.sdly, cfg.wpid, cfg.wkp, cfg.wki, cfg.alat, cfg.vfull, cfg.curveOld ? 0 : 1, cfg.brakeK, cfg.kpBoost, cfg.pivE, cfg.cornerMode, cfg.avScan, cfg.jnMode, cfg.clusterMode, cfg.vCluster, cfg.pCluster);
+  Serial.println(cfgLine());
   Serial.println("(Sensor calibration is NOT in this line -> after changing the sensor bar always run 'cal')");
 }
 // 1 line, several commands "kp 14;kd 0.35;sp 80" -> run in order, save once
@@ -2420,6 +2450,7 @@ void doCmd(String s) {
   else if (k == "wki" && set) cfg.wki = constrain(v, 0.0f, 30.0f);
   else if (k == "alat" && set) cfg.alat = constrain(v, 0.0f, 20000.0f);
   else if (k == "vfull" && set) cfg.vfull = constrain(v, 0.0f, 5000.0f);
+  else if (k == "dband" && set) { dBand = constrain(v, 0.0f, 50.0f); prefs.putFloat("db", dBand); }
   else if (k == "wcal") { wheelCal(); return; }
   else if (k == "curve" && set) cfg.curveOld = v == 0;
   else if (k == "brake" && set) cfg.brakeK = constrain(v, 0.0f, 0.95f);
@@ -2524,7 +2555,7 @@ void doCmd(String s) {
     Serial.println("Conclusion: wrong only with motors running -> electrical noise (twist wires, 100nF caps, separate motor wires). Wrong even when off -> clean channels, adjust height, shield light.");
     return;
   }
-  else { Serial.println("Commands: kp kd sp vmax obs lat pass sens fin nobs side pref cpr wheel track vcal aout aback avmode out par vout vpar vret vturn brev bms dec retm tlead roled cspd jmode mask auto fgo mode vfast mpre wifi | lag wpid wkp wki vfull alat wcal curve brake kpb piv uturn avscan jnmode cluster vclust pclust | export (print all parameters) | map mapclr | log cprcnt cal go raw noise info btn scan flip reset"); return; }
+  else { Serial.println("Commands: kp kd sp vmax obs lat pass sens fin nobs side pref cpr wheel track vcal aout aback avmode out par vout vpar vret vturn brev bms dec retm tlead roled cspd jmode mask auto fgo mode vfast mpre wifi | lag wpid wkp wki vfull dband alat wcal curve brake kpb piv uturn avscan jnmode cluster vclust pclust | export (print all parameters) | map mapclr | log cprcnt cal go raw noise info btn scan flip reset"); return; }
   if (!quietCmd) { cfgSave(); info(); }
 }
 // =====================================================================
@@ -2790,7 +2821,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.15 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.17 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
@@ -2861,6 +2892,7 @@ void webSet() {
   cfgSave(); dirty = true;
   web.sendHeader("Location", "/"); web.send(303, "text/plain", "");
 }
+String webMsg;   // C3.17: result of the last web command, shown on the page
 void webRoot() {
   String h; h.reserve(9000);
   h += F("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>LINE ROBOT</title>"
@@ -2876,6 +2908,11 @@ void webRoot() {
              res.why, res.t, res.d / 1000, res.v, res.obs, res.lost); h += b;
   } else h += F("<p>No run yet.</p>");
   h += F("<a class=b href=/log.txt>Full log</a><a class=b href=/log.txt?dl=1>Download log.txt</a><a class=b href=/>Refresh</a>");
+  h += F("<h2>Command</h2><p class=k>Any parameter, same text as Serial, several at once with ';' (e.g. <b>vmax 80;alat 4500</b>). Saved at once.</p>"
+         "<form action=/cmd><input name=c style='width:100%;font-size:16px;padding:8px' autocapitalize=off autocomplete=off><button>Apply</button></form>");
+  if (webMsg.length()) { h += F("<p><b>"); h += webMsg; h += F("</b></p>"); }
+  h += F("<p class=k>All parameters now (long-press to copy, send it with the log):</p><pre style='white-space:pre-wrap;word-break:break-all;background:#222;padding:8px'>");
+  h += cfgLine(); h += F("</pre>");
   h += F("<h2>Parameters</h2><p class=k>Each row: name + explanation + when to raise/lower it. Change one value at a time and test.</p><form action=/set><table>");
   struct Row { const char* k; const char* n; const char* g; float v; };
   // group = row k wide
@@ -2946,7 +2983,26 @@ void webLog() {
   web.sendContent("");
 }
 void logToSerial() { writeLog([](const char* l) { Serial.print(l); }); }
-void webInit() { web.on("/", webRoot); web.on("/log.txt", webLog); web.on("/set", webSet); }
+// C3.17 WEB COMMAND BOX: set ANY parameter from the phone, same text as on Serial: "vmax 80;alat 4500;dband 28".
+// Only "name value" pairs are accepted; driving commands (cal, wcal, go...) stay on the buttons (cal = CAL page + SET, wcal = INFO page + SET).
+void webCmd() {
+  String c = web.arg("c"); c.replace("\n", ";"); c.replace("\r", ""); c.trim();
+  bool ok = c.length() > 0; int a = 0;
+  String known = ";" + cfgLine() + ";";   // only names that appear in the parameter line (so 'wcal 1' / 'go 1' cannot start a run)
+  while (ok && a <= (int)c.length()) {
+    int e = c.indexOf(';', a); if (e < 0) e = c.length();
+    String part = c.substring(a, e); part.trim(); a = e + 1;
+    if (!part.length()) continue;
+    char k[16] = {0}; float v;
+    ok = sscanf(part.c_str(), "%15s %f", k, &v) == 2;
+    ok = ok && known.indexOf(";" + String(k) + " ") >= 0;
+  }
+  if (ok) { runCmdLine(c, false); cfgSave(); webMsg = "OK, saved: " + c; Serial.printf("WEB: %s\n", c.c_str()); }
+  else webMsg = "Refused: only parameter name + value, names as in the line below, e.g. vmax 80;alat 4500 (cal / wcal: use the buttons)";
+  dirty = true;
+  web.sendHeader("Location", "/"); web.send(303, "text/plain", "");
+}
+void webInit() { web.on("/", webRoot); web.on("/log.txt", webLog); web.on("/set", webSet); web.on("/cmd", webCmd); }
 void uiLoop() {
   uint32_t now = millis();
   if (now - tBat >= 500) {                 // read the battery 2 times/s, light filtering
@@ -3000,7 +3056,7 @@ void setup() {
   for (int i = 0; i < 8; i++) analogSetPinAttenuation(LPIN[i], ADC_11db);
   Wire.begin(PIN_SDA, PIN_SCL); Wire.setClock(I2C_HZ); Wire.setTimeOut(5);
   delay(800);
-  cfgLoad(); mapLoad();
+  cfgLoad(); mapLoad(); dBand = prefs.getFloat("db", 25.0f);
   for (int i = 0; i < 3 && !mpuOk; i++) { mpuOk = mpuInit(); if (!mpuOk) delay(200); }
   for (int i = 0; i < 3 && !vlOk; i++) { vlOk = vl.begin(0x29, false, &Wire); if (!vlOk) delay(200); }
   if (vlOk) {
