@@ -77,6 +77,7 @@ Bring-up sketches. Each one checks a single concern and prints the result on Ser
 | `Test_RightMotor` | Right N20 motor and its encoder, rpm at set PWM, manual pulse count |
 | `Test_N20` | Both N20 encoder motors: minimum PWM, rpm at 30 / 60 / 100 %, pulses per turn |
 | `Test_FullSpeed10s` | Both motors at 100 % for 10 s, rpm of each wheel and mismatch |
+| `Test_WheelSpeed` | Robot drives itself on the floor (buttons + OLED, no USB): 1 m odometer check, loaded speed at 40 / 60 / 80 / 100 % PWM |
 | `Test_LineSensor` | 8-channel line sensor: raw and calibrated values, noise, analog/digital type, read speed, sensor latency |
 | `Test_DriveStraight_Simple` | Straight driving with encoders only |
 | `Test_DriveStraight` | Straight driving for a set distance with gyro heading hold and encoder distance |

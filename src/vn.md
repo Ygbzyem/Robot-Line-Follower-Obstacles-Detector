@@ -78,6 +78,7 @@ Các sketch kiểm tra phần cứng. Mỗi sketch kiểm tra một việc và i
 | `Test_RightMotor` | Motor N20 bên phải và encoder, rpm theo PWM, đếm xung bằng tay |
 | `Test_N20` | Cả hai motor N20: PWM tối thiểu, rpm ở 30 / 60 / 100 %, số xung mỗi vòng |
 | `Test_FullSpeed10s` | Hai motor chạy 100 % trong 10 s, rpm từng bánh và độ lệch |
+| `Test_WheelSpeed` | Xe tự chạy trên sàn (nút nhấn + OLED, không cần cáp USB): kiểm tra quãng đường 1 m, tốc độ có tải ở 40 / 60 / 80 / 100 % PWM |
 | `Test_LineSensor` | Cảm biến line 8 mắt: giá trị thô và đã hiệu chuẩn, nhiễu, loại analog/digital, tốc độ đọc, độ trễ cảm biến |
 | `Test_DriveStraight_Simple` | Đi thẳng chỉ bằng encoder |
 | `Test_DriveStraight` | Đi thẳng một quãng định trước, giữ hướng bằng gyro, đo quãng bằng encoder |
