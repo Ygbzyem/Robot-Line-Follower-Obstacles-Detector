@@ -1,6 +1,10 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.21 (28/11): ARC avoid from the 28/11 log (brick seen at 240 mm at 1250 mm/s): (1) short reverse brake down to the out speed before
+                    curving (the out curve overshot to 63 deg and used 300 mm); (2) the last 70 mm before the line are driven at 35 deg instead of 65,
+                    so the slow photoresistors stay over the line longer; (3) give up only 0.5 x lat past the line (odometry drifts after a fast curve);
+                    (4) the fallback sweep pivots at 46 % (34 % did not turn the robot: stuck 1.4 s).
   VERSION C3.20 (28/11): ARC avoid did not catch the line on the way back: it slowed down by the WHEEL AXLE position, but at 65 deg the sensor
                     bar reaches the line ~100 mm earlier -> it crossed at full return speed and the photoresistors missed it. Now it slows by the SENSOR BAR
                     position (70 mm before the line) to the old-gearbox catch speed (~440 mm/s); if it still passes the line it turns back toward it.
@@ -189,6 +193,7 @@ const float AV_PCT = 60;        // straight speed while avoiding obstacles
 const float ARC_KH = 2.5f;      // % wheel difference per degree of heading error
 const float ARC_KD = 0.04f;     // damping on the gyro turn rate
 const float ARC_LOOK = 120;     // look-ahead (mm) when steering onto the lateral offset 'lat'
+const float ARC_CATCH_DEG = 35;  // C3.21: approach angle over the last ARC_SLOW mm before the line
 const float ARC_SLOW = 70;      // C3.20: slow to the catch speed when the sensor bar is this close (mm) to the line
 const float ARC_FACE = 30;      // the wheel axle must be 'lat' out when the nose is still this far (mm) before the brick face
 const float AV_TURN = 60;       // max turn speed while avoiding
@@ -1616,6 +1621,10 @@ bool avoidObstacle() {
       float corr = constrain(ARC_KH * e - ARC_KD * gz, -1.35f * v, 1.35f * v);
       driveV(v - corr, v + corr);
     };
+    // C3.21: seen at straight speed (log: 1250 mm/s) -> the out curve ran wide (63 deg, 300 mm forward) -> short reverse brake down to the out speed first
+    { const float vOut = cfg.spdOut * cfg.vfull / 100.0f; uint32_t tb = millis();
+      while (!aborted && 0.5f * (vL + vR) > vOut + 100 && millis() - tb < 120) { update(); drive(-cfg.brkRev, -cfg.brkRev); }
+      if (millis() - tb > 5) Serial.printf("  ARC: braked %lu ms to %.0f mm/s\n", (unsigned long)(millis() - tb), 0.5f * (vL + vR)); }
     uint32_t tA = millis(); bool emer = false;
     const float catchV = cfg.vfull > 100 ? CATCH_PCT * 1158.0f / cfg.vfull : CATCH_PCT;   // C3.20: same REAL catch speed as on the old gearbox (~440 mm/s)
     phase = '2';
@@ -1648,8 +1657,9 @@ bool avoidObstacle() {
         if (hits >= 3 && nb2) { logEv('T'); found = true; break; }
       } else hits = 0;
       float bar = avCross();                        // C3.20: SENSOR BAR offset from the line (was the axle: the bar is ~100 mm closer at 65 deg)
-      if (bar < -45) break;                         // the sensor bar went past the line without seeing it
-      steer(-ab, bar < ARC_SLOW ? catchV : cfg.spdRet);   // slow down before the bar reaches the line (photoresistors need time to see it)
+      if (bar < -0.5f * L) break;                   // C3.21: well past the line (odometry can be ~50-100 mm off after a fast curve: was -45)
+      // C3.21: near the line flatten the approach to ARC_CATCH_DEG -> the bar stays over the 2 cm line ~2x longer (photoresistors are slow)
+      if (bar < ARC_SLOW) steer(-min(ab, ARC_CATCH_DEG), catchV); else steer(-ab, cfg.spdRet);
     }
   } else {
     phase = '2'; bool hit = straightMM(outDist, h + ang * s, cfg.spdOut, scanOut, 0, false, true, flowAvoid); avOverOut = flowAvoid ? 0 : lastOver;
@@ -1677,7 +1687,7 @@ bool avoidObstacle() {
   if (found && avSideHit) { avSideGrab = 0; return grabDone(); }   // C3.7: on a bend - follow the line immediately on the bend side
   bool arc = false, ok = false; avGate = false;
   if (!found && arcMode) {                         // C3.20: ARC passed the line without seeing it -> turn back toward the old heading (the line is behind the bar)
-    logEv('X'); ok = sweepFind(s > 0 ? -1 : 1, 110, 170, 2, 2.5f);
+    logEv('X'); ok = sweepFind(s > 0 ? -1 : 1, 110, 170, 2, 2.5f, PIVOT_PCT + 12);   // C3.21: stronger pivot (34 % stalled on the new gearbox)
     if (ok) { fixDir(); phase = '-'; logEv('o'); return true; }
   }
   if (!found) { phase = '7'; logEv('7'); found = arcFind(s, 150, 900); arc = true; }
@@ -2896,7 +2906,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.20 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.21 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
