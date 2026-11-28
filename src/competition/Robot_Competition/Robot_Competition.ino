@@ -1,6 +1,11 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.26 (28/11): CIRCLE CLUSTER: square-grid mode ('Q': stop at the junction center and pivot) was latched by mistake at the touching
+                    points of the circles (black covers the bar there too) -> the robot pivoted inside the circles and looped (simulation: every slow /
+                    failed circle run). Now grid mode is only confirmed on a PURE T (no line straight on after it) and is cancelled as soon as the
+                    robot rolls round an arc >= 70 deg (square edges are straight). Simulation: circles 51 -> 52/54 and less time, squares and
+                    hexagons unchanged. USER_CFG = your parameters of 28/11.
   VERSION C3.25 (28/11): ARC line catch: as soon as the line is under the bar (2 reads instead of 3) the robot FOLLOWS it with PD right away
                     and, when the line slips off the bar while crossing at an angle, pivots toward the side the line continues on. The merge arc was
                     dropped for ARC (28/11 log: it ran ~2x wider than planned and lost the line for 1.3 s).
@@ -197,7 +202,7 @@ struct Tr { uint16_t t; int32_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uin
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
-const char* USER_CFG = "kp 10.6;kd 0.4;sp 58;vmax 73;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 215;pass 80;nobs 0;side 0;avmode 3;aout 58;aback 65;out 76;par 500;vout 51;vpar 51;vret 44;vturn 51;retm 0;brev 60;bms 80;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 28/11 C3.24: retm 0 (merge without stopping), brev 60, bms 80 (harder brake) | 28/11: avmode 3 (ARC avoid), lat 215 (brick may lie across the line) | 25/11: vfull 1583 + dband 28.5 measured on the floor, C3.11b percentages x 0.731 (vclust 22 = 348 mm/s: simulation with the dead band preferred slower in the square cluster) | 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
+const char* USER_CFG = "kp 10.6;kd 0.4;sp 80;vmax 100;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 400;lat 190;pass 40;nobs 0;side 0;avmode 3;aout 58;aback 65;out 76;par 300;vout 51;vpar 51;vret 44;vturn 51;retm 0;brev 75;bms 90;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 28/11: your tuned parameters after C3.25 (obs 400, brev 75, bms 90, par 300)
 // ================= EDIT HERE =================
 bool REV_L = true;     // LEFT motor reversed (confirmed)
 bool REV_R = false;
@@ -1940,7 +1945,7 @@ void runCourse() {
   // knows whether the junction has a LEFT / RIGHT branch (black trace flaring to the edge) and whether the STRAIGHT line continues (20 mm after the junction) -> pick the branch with the heading CLOSEST
   // main heading (hRef) (equal -> pref). Side branch -> bring the WHEEL AXLE to the junction CENTER then turn into the branch (log 'Q').
   // (before: the PID only passed the side branch for ~0.1 s -> missed the branch -> robot circled / ran backward depending on the cluster offset up or down)
-  bool gridOn = false; float gridJ = -1e9; uint8_t clusterPref = 0;
+  bool gridOn = false; float gridJ = -1e9, gridCand = -1e9; uint8_t clusterPref = 0;
   int qMB = 0; float hexW = -1e9, hRefHex = 0, dCv = -1e9, cvH0 = 0, dCircle = -1e9;   // C3.11 hexagon cluster: hexW = position of the last Y-junction, hRefHex = locked main heading
   float hexD = -1e9, sqCandD = -1e9; bool qPend = false; float qL = 0, qR = 0, qLc = 0, qD0 = 0, qD1 = 0, qH0 = 0; bool qFull = false; bool qFast = false;
   auto inSqCluster = [&]() { int n = 0; for (float x : jT) if (dist() - x < 500) n++; return n >= 2; };   // >= 2 junctions within 45 cm = inside a CLUSTER
@@ -2046,8 +2051,16 @@ void runCourse() {
       // C3.4: PERPENDICULAR T (black covers the whole bar, 1 trace - not splitting into 2 branches) on the main heading = ENTERING A SQUARE CLUSTER.
       //       Y-junction (black covering the bar then SPLITTING into 2 diagonal branches) = HEXAGON / honeycomb -> NOT latched in the grid for 60 cm (beyond the hexagon frame)
       if (qFull && qMB >= 2) { hexD = dist(); gridOn = false; }
-      if (qFull && qMB == 1 && fabsf(wrap180(heading() - hRef)) < 30.0f && dist() - hexD > 600.0f) { gridOn = true; gridJ = dist(); }
+      // C3.26: a square-cluster ENTRY is a pure T (no straight line after it). At the touching points of the CIRCLE cluster the black also covers
+      //  the bar, but the arc continues straight on -> latching grid mode there made the robot stop-and-pivot (Q) inside the circles and loop.
+      //  Now only a CANDIDATE here; confirmed 20 mm after the junction only if no line continues straight ahead.
+      if (qFull && qMB == 1 && fabsf(wrap180(heading() - hRef)) < 30.0f && dist() - hexD > 600.0f) { if (gridOn) gridJ = dist(); else gridCand = dist(); }
       if (gridOn) { qPend = (qL >= 2.0f || qR >= 2.0f || qFull); qD1 = dist(); gridJ = dist(); }
+    }
+    if (gridCand > -1e8 && !junc && dist() - gridCand >= 20.0f) {                 // C3.26: confirm the square cluster only on a pure T
+      bool straightOn = seen && fabsf(posC - qLc) < 1.3f;
+      if (!straightOn) { gridOn = true; gridJ = dist(); }
+      gridCand = -1e9;
     }
     if (gridOn && dist() - gridJ > 450.0f) gridOn = false;                       // 45 cm without a junction = out of the cluster
     wasJunc = junc;
@@ -2136,6 +2149,7 @@ void runCourse() {
     // curving CONTINUOUSLY > HEX_CV mm = circle (hexagon edges are straight, the 60-degree corners are short) -> temporarily disable hexagon mode (the circle-exit rule runs again)
     if (fabsf(gzSlow) < CIRC_GZ) dCv = -1e9; else if (dCv < -1e8) { dCv = dist(); cvH0 = heading(); }
     else if (fabsf(heading() - cvH0) >= 200.0f) dCircle = dist();   // C3.15: curved continuously >= 200 deg = went round a circle
+    if (gridOn && dCv > -1e8 && fabsf(heading() - cvH0) >= 70.0f) { gridOn = false; gridCand = -1e9; }   // C3.26: rolling round an arc >= 70 deg = circles, not squares (square edges are straight)
     hexG = cfg.clusterMode && cfg.jMode && dist() - hexW < HEX_MM && !(dCv > -1e8 && dist() - dCv > HEX_CV);
     if (hexG) hRef = hRefHex;
     else if (seen && !junc && millis() - tStraight > 400 && !inCluster() && fabsf(gz) < 40.0f) hRef += wrap180(heading() - hRef) * min(1.0f, dt * 5.0f);
@@ -2972,7 +2986,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.25 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.26 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
