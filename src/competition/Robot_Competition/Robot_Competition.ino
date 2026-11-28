@@ -1,6 +1,16 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.31 (28/11): CIRCLE CLUSTER rebuilt from the REAL sensor data (C3.30 2 mm capture; sensor spacing ~12 mm = D1-D8 edges 88 mm,
+                    line 16 mm at home / 20 mm at the contest). The simulator now uses that sensor model and reproduces the real failure
+                    (C3.30 logic: 18/96 circle runs ok, robot loops like the real log).
+                    ENTRY: a SEPARATE trace appears at D8 / D1 (white gap to the line), slides in and merges with the line within 90 mm, and
+                    stays beside the line for 16 mm (a T branch crossed at an angle is gone after <= 10 mm), while driving straight.
+                    ARC FOLLOWING: line candidates come from the raw channels (a 1-channel line is real at 12 mm spacing; readLine() dropped it
+                    as noise and the robot jumped to a crossing arc); world line rebuilt with 12 mm per channel (CX_PITCH).
+                    Simulation, real sensor model, line 16 and 20 mm, R 96-130 mm, touching / overlapping / mirrored, 6 variants: 94/96 on the
+                    S-path (2 runs dip 23 mm at the last touching point but stay on it); 1/816 false entries (that run still finishes);
+                    square / hexagon / pulse / circle-exit / avoid benches unchanged. CAPTURE 2mm log kept.
   VERSION C3.30 (28/11): DIAGNOSTIC for the circle cluster (real log 28/11: C3.29 never entered arc mode - the real line covers ~1 channel,
                     the joining arcs only widened the trace and never made a 'junction'). Adds "CAPTURE 2mm" to the log: 8 analog channels + heading
                     every 2 mm from 20 cm before the first wide trace to 80 cm after. Driving logic = C3.29.
@@ -253,7 +263,9 @@ const float CX_V = 34;          // C3.29: speed (%) while following the circle a
 const float CX_HYS = 8;         // C3.29: line heading must pass hRef by this much (deg) before the followed edge changes side
 const float CX_BASE = 24;       // C3.29: line heading measured over this length of the followed line (mm)
 const float CX_FORK = 1.3f;     // C3.29: two line candidates within this (channels) of the followed line = it forks -> chosen side
-const float CX_SLIDE = 10;      // C3.29: joining arc slid >= this (mm) from the outer channel inward = circle cluster entry (corners: <= 4)
+const float CX_ARM = 90;        // C3.31: a separate trace at D8 / D1 must merge with the line within this (mm) = circle cluster entry
+const float CX_HOLD = 16;       // C3.31: ... and stay beside the line (black beyond the line on that side) this long (mm); T branch: <= 9
+const float CX_PITCH = 12;      // C3.31: sensor spacing (mm, measured: D1-D8 edges 88 mm); the line on the bar -> world position
 const float CX_STR = 50;        // C3.29: straight line on hRef this long (mm) = exit line
 const float CX_MAX = 1400;      // C3.27: no exit line by then -> back to normal line following
 const float CIRC_NO_REV = 600; // C3.15: this far (mm) after going round a circle, 'running backward' needs 120 mm of evidence instead of 60
@@ -1986,7 +1998,7 @@ void runCourse() {
   // main heading (hRef) (equal -> pref). Side branch -> bring the WHEEL AXLE to the junction CENTER then turn into the branch (log 'Q').
   // (before: the PID only passed the side branch for ~0.1 s -> missed the branch -> robot circled / ran backward depending on the cluster offset up or down)
   bool gridOn = false; float gridJ = -1e9, gridCand = -1e9; uint8_t clusterPref = 0;
-  float edgeRD = -1e9, edgeLD = -1e9, slideR = 0, slideL = 0;   // C3.29 arc joining from the side: where the outer channel first saw it, slide length
+  float cxArmR = -1e9, cxArmL = -1e9, cxSlide = 0, cxPendD = 0, cxHoldD = 0; int cxPend = 0;   // C3.31 circle entry: where a separate trace appeared at D8 / D1, its slide to the line (mm)
   float cxCandD = -1e9;   // C3.27 circle cluster candidate (distance where the split was seen)
   int qMB = 0; float hexW = -1e9, hRefHex = 0, dCv = -1e9, cvH0 = 0, dCircle = -1e9;   // C3.11 hexagon cluster: hexW = position of the last Y-junction, hRefHex = locked main heading
   float hexD = -1e9, sqCandD = -1e9; bool qPend = false; float qL = 0, qR = 0, qLc = 0, qD0 = 0, qD1 = 0, qH0 = 0; bool qFull = false; bool qFast = false;
@@ -2065,17 +2077,6 @@ void runCourse() {
     if (junc && !wasJunc) { jTwo = false; jS0 = dist(); }
     if (junc && (nBlob >= 2 || (b0s <= 1 && b0e >= 6))) jTwo = true;   // 2 separate traces, or black COVERING THE WHOLE BAR (T from the base, 4-way)
     if (!junc && wasJunc && jTwo && dist() - jS0 >= 8.0f) jT[jTI++ & 3] = dist();
-    // C3.29: an arc JOINING the line from the side touches the OUTER channel first and slides inward over 2-3 cm before the channel 2 places
-    //  from the center turns black; a perpendicular branch (90-degree corner / T) blackens both at the same moment. slideR/L = that distance (mm).
-    {
-      static bool p7 = false, p5 = false, p0 = false, p2 = false;
-      bool k7 = val[7] > 0.5f, k5 = val[5] > 0.5f, k0 = val[0] > 0.5f, k2 = val[2] > 0.5f;
-      if (k7 && !p7 && !k5 && fabsf(lineC) < 0.8f) edgeRD = dist();
-      if (k5 && !p5) { slideR = (edgeRD > -1e8 && dist() - edgeRD < 150.0f) ? dist() - edgeRD : 0; edgeRD = -1e9; }
-      if (k0 && !p0 && !k2 && fabsf(lineC) < 0.8f) edgeLD = dist();
-      if (k2 && !p2) { slideL = (edgeLD > -1e8 && dist() - edgeLD < 150.0f) ? dist() - edgeLD : 0; edgeLD = -1e9; }
-      p7 = k7; p5 = k5; p0 = k0; p2 = k2;
-    }
     if (junc && !wasJunc) { qL = qR = 0; qFull = false; qFast = false; qMB = 0; qLc = lineC; qD0 = dist(); qH0 = heading(); }
     if (junc) {
       if (b0s <= 1 && bLe >= 6) qFull = true;
@@ -2100,20 +2101,53 @@ void runCourse() {
     //  position), take its heading at the bar; line heading right of hRef -> follow the LEFT edge, left of hRef -> follow the RIGHT edge
     //  (hysteresis CX_HYS). Robot heading is not used: the bar is 115 mm ahead, so the robot heading lags the line by ~1/4 wave.
     //  Exit: the line under the bar is straight and on hRef for CX_STR mm. Line lost / CX_MAX mm -> normal line following / search.
-    if (!junc && wasJunc && cfg.clusterMode && !inAvoid) {
-      const bool straightIn = fabsf(wrap180(heading() - hRef)) < 12.0f && fabsf(gzSlow) < 25.0f;
-      const bool oneSide = (qL >= 2.5f && qR <= 1.8f) || (qR >= 2.5f && qL <= 1.8f);
-      // entry signature: driving straight, a slow split to ONE side (not a full bar, not a fast hexagon Y), and C3.29: the joining arc
-      //  SLID in from the outer channel (simulation: 16-26 mm; corners / T / square cluster: 0-6 mm). Replaces C3.28's '2 traces seen':
-      //  at a fast approach the 2 traces blur into one wide trace, and a skewed square-cluster entry also shows 2 traces.
-      const float slide = qR >= 2.5f ? slideR : slideL;
-      if (slide >= CX_SLIDE && !qFull && !qFast && straightIn && oneSide) {
+    // C3.31 ENTRY DETECTOR, built from the real 2 mm capture (C3.30 log 28/11): a SEPARATE trace appears at the outer channel (D8 or D1)
+    //  with a white gap to the line, slides inward and MERGES with the line within CX_ARM mm, while driving straight = an arc of the circle
+    //  cluster joining the line. A 90-degree corner / T branch starts AT the line (no gap); a hexagon Y splits (merged -> separate).
+    //  Works on raw channel values: the readLine() noise filter drops a 1-channel trace, so it never becomes a 'junction' on a 16-20 mm line.
+    int cxFire = 0;
+    {
+      const int li = constrain((int)lroundf(lineC + 3.5f), 0, 7);
+      const bool straightNow = fabsf(wrap180(heading() - hRef)) < 20.0f && fabsf(gzSlow) < 40.0f;
+      bool gapR = false, gapL = false, contR = true, contL = true;
+      for (int j = li + 1; j < 7; j++) if (val[j] < 0.35f) gapR = true;
+      for (int j = 1; j < li; j++) if (val[j] < 0.35f) gapL = true;
+      int oR = -1, oL = 8; for (int j = 7; j > li; j--) if (val[j] > 0.5f) { oR = j; break; }
+      for (int j = 0; j < li; j++) if (val[j] > 0.5f) { oL = j; break; }
+      for (int j = li; j <= oR; j++) if (val[j] < 0.35f) contR = false;
+      for (int j = oL; j <= li; j++) if (j >= 0 && val[j] < 0.35f) contL = false;
+      if (oR < 0) contR = false;
+      if (oL > 7) contL = false;
+      if (!seen || !straightNow || inAvoid) cxArmR = cxArmL = -1e9;
+      else {
+        if (cxArmR < -1e8 && val[7] > 0.5f && gapR && li <= 5) cxArmR = dist();
+        if (cxArmL < -1e8 && val[0] > 0.5f && gapL && li >= 2) cxArmL = dist();
+        if (cxArmR > -1e8 && (dist() - cxArmR > CX_ARM || val[0] > 0.5f)) cxArmR = -1e9;
+        if (cxArmL > -1e8 && (dist() - cxArmL > CX_ARM || val[7] > 0.5f)) cxArmL = -1e9;
+        if (cxPend == 0 && cxArmR > -1e8 && contR && oR < 7 && dist() - cxArmR >= 8.0f) { cxPend = 1; cxSlide = dist() - cxArmR; cxPendD = cxHoldD = dist(); cxArmR = -1e9; }
+        else if (cxPend == 0 && cxArmL > -1e8 && contL && oL > 0 && dist() - cxArmL >= 8.0f) { cxPend = -1; cxSlide = dist() - cxArmL; cxPendD = cxHoldD = dist(); cxArmL = -1e9; }
+      }
+      // C3.31: after the merge an arc TOUCHING the line stays merged with it (wider than the line on that side) for several cm; a T branch
+      //  crossed at an angle is only a line width wide and is gone after ~2 cm. Confirm only when it stays merged for CX_HOLD mm.
+      if (cxPend != 0) {
+        bool wider = false;   // black still beyond the line on the trace side (merged or separate again)
+        if (cxPend > 0) { for (int j = li + 1; j <= 7; j++) if (val[j] > 0.5f) wider = true; }
+        else            { for (int j = 0; j < li; j++) if (val[j] > 0.5f) wider = true; }
+        if (wider) cxHoldD = dist();
+        if (!seen || !straightNow || dist() - cxHoldD > 4.0f) cxPend = 0;
+        else if (dist() - cxPendD >= CX_HOLD) { cxFire = cxPend; cxPend = 0; }
+      }
+    }
+    if (cxFire != 0 && cfg.clusterMode && !gridOn && dist() - hexW > HEX_MM) {
+      cxArmR = cxArmL = -1e9;
+      {
         logEv('E'); phase = 'E';
         const float hC = hRef, d0c = dist();
-        int side = qR >= 2.5f ? 0 : 1;          // arcs join from the right -> keep the LEFT edge (stay on the approach line until it merges)
+        int side = cxFire > 0 ? 0 : 1;          // arc joins from the right -> keep the LEFT edge (stay on the approach line until it merges)
+        const float slide = cxSlide;
         float wHalf = 1.0f;                     // half line width (channels), learned on plain line
         const int NP = 32; float px[NP], py[NP], pd[NP]; int np = 0;   // followed line points, every ~3 mm
-        float psiL = 0, strLen = 0, lostLen = 0, lastD = dist(), ePrev = posC, eF = posC, eT = posC, maxDev = 0; int exitWhy = 0, nSw = 0; float swD = -1e9;
+        float psiL = 0, strLen = 0, lostLen = 0, lastD = dist(), ePrev = lineC, eF = lineC, eT = lineC, maxDev = 0; int exitWhy = 0, nSw = 0; float swD = -1e9;
         uint32_t tc = millis(), tp = micros();
         const float v = CX_V;
         while (!aborted && millis() - tc < 4000) {
@@ -2129,18 +2163,24 @@ void runCourse() {
           auto edgeL = [&](int i) { float o = i > 0 ? val[i - 1] : 0.0f; return (i - 1) + constrain((0.5f - o) / max(0.05f, val[i] - o), 0.0f, 1.0f); };
           auto edgeR = [&](int i) { float o = i < 7 ? val[i + 1] : 0.0f; return (i + 1) - constrain((0.5f - o) / max(0.05f, val[i] - o), 0.0f, 1.0f); };
           if (nBlob == 1 && nBlack <= 3 && edgeR(b0e) - edgeL(b0s) < 2.8f) wHalf += 0.03f * (constrain(0.5f * (edgeR(b0e) - edgeL(b0s)), 0.6f, 1.4f) - wHalf);
-          float cand[4]; int nc = 0;
+          float cand[6]; int nc = 0;
           auto addTrace = [&](int i0, int i1) {
             float l = edgeL(i0) + wHalf - 3.5f, r = edgeR(i1) - wHalf - 3.5f;
             if (r - l < 1.2f) cand[nc++] = 0.5f * (l + r); else { cand[nc++] = l; cand[nc++] = r; }   // < 1.2: one line (crossed at an angle it looks wider)
           };
-          addTrace(b0s, b0e); if (nBlob >= 2) addTrace(bLs, bLe);
+          // own scan of the raw channels: at 12 mm spacing a 16-20 mm line often blackens ONE channel, which readLine() drops as noise
+          for (int i = 0; i < 8 && nc < 3; ) {
+            if (val[i] <= 0.5f) { i++; continue; }
+            int j = i; while (j < 7 && val[j + 1] > 0.5f) j++;
+            addTrace(i, j); i = j + 1;
+          }
+          if (nc == 0) addTrace(b0s, b0e);
           int bi = 0; for (int i = 1; i < nc; i++) if (fabsf(cand[i] - eT) < fabsf(cand[bi] - eT)) bi = i;
           for (int i = 0; i < nc; i++) if (i != bi && fabsf(cand[i] - eT) < CX_FORK && (side ? cand[i] > cand[bi] : cand[i] < cand[bi])) bi = i;
           float e = cand[bi]; if (fabsf(e - eT) > 0.5f) np = 0;   // jumped to another line -> rebuild its heading from scratch
           eT = e;
           // rebuild the followed line (world) and its heading at the bar
-          float hr = heading() * DEG_TO_RAD, lx = odoX + cosf(hr) * cfg.sensAx + sinf(hr) * e * 10.0f, ly = odoY + sinf(hr) * cfg.sensAx - cosf(hr) * e * 10.0f;
+          float hr = heading() * DEG_TO_RAD, lx = odoX + cosf(hr) * cfg.sensAx + sinf(hr) * e * CX_PITCH, ly = odoY + sinf(hr) * cfg.sensAx - cosf(hr) * e * CX_PITCH;
           if (np == 0 || dist() - pd[(np - 1) % NP] >= 3.0f) { px[np % NP] = lx; py[np % NP] = ly; pd[np % NP] = dist(); np++; }
           int k = np - 1, j = k; while (j > 0 && j > np - NP && dist() - pd[(j - 1) % NP] <= CX_BASE) j--;
           float psiOld = psiL;
@@ -2168,7 +2208,6 @@ void runCourse() {
         continue;
       }
     }
-    if (!junc && wasJunc) slideR = slideL = 0;   // C3.29: slide belongs to this junction only
     if (cxCandD > -1e8 && dist() - cxCandD > 220.0f) cxCandD = -1e9;
     // C3.11 HEXAGON CLUSTER: Y-junction (black trace SPLITTING into 2 slanted branches) -> enable hexagon mode for HEX_MM (each new Y-junction extends it)
     if (!junc && wasJunc && cfg.clusterMode && cfg.jMode && !inAvoid && qFast && fabsf(gzSlow) < HEX_GZ && dist() - qD0 < 90.0f) {   // large gzSlow = touching circles, not a hexagon
@@ -3116,7 +3155,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.30 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.31 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
