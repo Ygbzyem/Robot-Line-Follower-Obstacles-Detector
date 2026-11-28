@@ -1,6 +1,9 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.20 (28/11): ARC avoid did not catch the line on the way back: it slowed down by the WHEEL AXLE position, but at 65 deg the sensor
+                    bar reaches the line ~100 mm earlier -> it crossed at full return speed and the photoresistors missed it. Now it slows by the SENSOR BAR
+                    position (70 mm before the line) to the old-gearbox catch speed (~440 mm/s); if it still passes the line it turns back toward it.
   VERSION C3.19 (28/11): ARC (parabola-like) obstacle avoid = avmode 3. Same plan as avmode 2 (out -> parallel -> back), but the robot does NOT
                     stop when it sees the brick, does NOT pivot to the out angle and does NOT stop at the line: it keeps rolling and steers one smooth
                     curve with odometry + gyro (out at 'aout', curve onto the offset 'lat', hold it past the brick, back at 'aback', merge into the line).
@@ -186,6 +189,7 @@ const float AV_PCT = 60;        // straight speed while avoiding obstacles
 const float ARC_KH = 2.5f;      // % wheel difference per degree of heading error
 const float ARC_KD = 0.04f;     // damping on the gyro turn rate
 const float ARC_LOOK = 120;     // look-ahead (mm) when steering onto the lateral offset 'lat'
+const float ARC_SLOW = 70;      // C3.20: slow to the catch speed when the sensor bar is this close (mm) to the line
 const float ARC_FACE = 30;      // the wheel axle must be 'lat' out when the nose is still this far (mm) before the brick face
 const float AV_TURN = 60;       // max turn speed while avoiding
 const float AV_SPEED_BOOST = 1.30f; // speed up the avoid segments without changing the wheel ratio
@@ -1613,6 +1617,7 @@ bool avoidObstacle() {
       driveV(v - corr, v + corr);
     };
     uint32_t tA = millis(); bool emer = false;
+    const float catchV = cfg.vfull > 100 ? CATCH_PCT * 1158.0f / cfg.vfull : CATCH_PCT;   // C3.20: same REAL catch speed as on the old gearbox (~440 mm/s)
     phase = '2';
     while (!aborted && millis() - tA < 1500) {      // OUT
       update();
@@ -1642,9 +1647,9 @@ bool avoidObstacle() {
         if (maxRun >= 2) nb2 = true;
         if (hits >= 3 && nb2) { logEv('T'); found = true; break; }
       } else hits = 0;
-      float y = ay();
-      if (y < -0.6f * L) break;                     // went well past the line without seeing it
-      steer(-ab, y < 90 ? min(cfg.spdRet, CATCH_PCT) : cfg.spdRet);
+      float bar = avCross();                        // C3.20: SENSOR BAR offset from the line (was the axle: the bar is ~100 mm closer at 65 deg)
+      if (bar < -45) break;                         // the sensor bar went past the line without seeing it
+      steer(-ab, bar < ARC_SLOW ? catchV : cfg.spdRet);   // slow down before the bar reaches the line (photoresistors need time to see it)
     }
   } else {
     phase = '2'; bool hit = straightMM(outDist, h + ang * s, cfg.spdOut, scanOut, 0, false, true, flowAvoid); avOverOut = flowAvoid ? 0 : lastOver;
@@ -1671,6 +1676,10 @@ bool avoidObstacle() {
   }
   if (found && avSideHit) { avSideGrab = 0; return grabDone(); }   // C3.7: on a bend - follow the line immediately on the bend side
   bool arc = false, ok = false; avGate = false;
+  if (!found && arcMode) {                         // C3.20: ARC passed the line without seeing it -> turn back toward the old heading (the line is behind the bar)
+    logEv('X'); ok = sweepFind(s > 0 ? -1 : 1, 110, 170, 2, 2.5f);
+    if (ok) { fixDir(); phase = '-'; logEv('o'); return true; }
+  }
   if (!found) { phase = '7'; logEv('7'); found = arcFind(s, 150, 900); arc = true; }
   if (found && !arc && (cfg.retMode == 0 || arcMode)) ok = mergeLine(h);   // C3.19: ARC avoid always merges without stopping
   if (found && !ok) ok = catchLine(s, h, !arc);
@@ -2887,7 +2896,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.19 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.20 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
