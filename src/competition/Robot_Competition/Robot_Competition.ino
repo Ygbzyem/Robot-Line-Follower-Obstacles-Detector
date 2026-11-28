@@ -1,6 +1,8 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.22 (28/11): ARC avoid follows 'retm' on the way back: retm 1 = brake on the line, center, turn (backs up if it overshot) like avmode 2;
+                    retm 0 = merge without stopping. Real track: the merge overshot and lost the line.
   VERSION C3.21 (28/11): ARC avoid from the 28/11 log (brick seen at 240 mm at 1250 mm/s): (1) short reverse brake down to the out speed before
                     curving (the out curve overshot to 63 deg and used 300 mm); (2) the last 70 mm before the line are driven at 35 deg instead of 65,
                     so the slow photoresistors stay over the line longer; (3) give up only 0.5 x lat past the line (odometry drifts after a fast curve);
@@ -1654,7 +1656,7 @@ bool avoidObstacle() {
       if (peakV >= 0.6f && nBlack >= 1 && avGateOK()) {
         if (++hits == 1) { enterPos = posC; nb2 = false; }
         if (maxRun >= 2) nb2 = true;
-        if (hits >= 3 && nb2) { logEv('T'); found = true; break; }
+        if (hits >= 3 && nb2) { logEv('T'); found = true; if (cfg.retMode == 1) hardStop(); break; }   // C3.22: retm 1 -> brake on the line like avmode 2
       } else hits = 0;
       float bar = avCross();                        // C3.20: SENSOR BAR offset from the line (was the axle: the bar is ~100 mm closer at 65 deg)
       if (bar < -0.5f * L) break;                   // C3.21: well past the line (odometry can be ~50-100 mm off after a fast curve: was -45)
@@ -1691,7 +1693,7 @@ bool avoidObstacle() {
     if (ok) { fixDir(); phase = '-'; logEv('o'); return true; }
   }
   if (!found) { phase = '7'; logEv('7'); found = arcFind(s, 150, 900); arc = true; }
-  if (found && !arc && (cfg.retMode == 0 || arcMode)) ok = mergeLine(h);   // C3.19: ARC avoid always merges without stopping
+  if (found && !arc && cfg.retMode == 0) ok = mergeLine(h);   // C3.22: ARC follows 'retm' too (1 = stop-align-turn, catches the line even after overshooting)
   if (found && !ok) ok = catchLine(s, h, !arc);
   if (!ok) { logEv('X'); ok = sweepFind(dirExp(), 130, 170, 2, 2.5f); }   // C3.8: sweep first toward where the line continues (heading h / bend side)   // v3.7: wider sweep (the line may have changed direction - obstacle between 2 bends); if following backward, fixDir turns back
   if (ok) fixDir();
@@ -2906,7 +2908,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.21 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.22 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
