@@ -1,6 +1,15 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.24 (28/11): from the 28/11 C3.22 log (2nd brick: 1300 mm/s at 294 mm -> slid into it, pushed 4 s; line catch took 1.2 s):
+                    (1) ENTRY: roll into the curve only if v <= sqrt(2 x 2500 x (VL - 110)); faster -> hard brake (brev 60 / bms 80) + back up if
+                    too close (v3.8), then the same curve from standstill; (2) the VL53 slow zone (obs + 150 mm) slows to that safe speed instead of a
+                    fixed 35 %; (3) OUT: nose < 70 mm or pushing without moving -> back up 60 mm, turn 20 deg further out (max 3 times);
+                    stuck while parallel -> lane blocked -> other side; (4) LINE CATCH without searching: merge / grab run through the wheel PID
+                    (raw 25-45 % PWM sits on the new gearbox's dead band -> crawled and turned too tight), grab exits after 80 ms; retm 0.
+  VERSION C3.23 (28/11): ARC avoid with a BLOCKED LANE (track edge / wall / object beside the line, 28/11 log: pushed into it for 1.6 s):
+                    the VL53 is now watched while driving out and parallel; an object < 200 mm ahead that is not the brick -> stop, back up behind
+                    the start point and avoid on the OTHER side. Both sides blocked -> stop (avoid failed). On the way back: stop instead of pushing.
   VERSION C3.22 (28/11): ARC avoid follows 'retm' on the way back: retm 1 = brake on the line, center, turn (backs up if it overshot) like avmode 2;
                     retm 0 = merge without stopping. Real track: the merge overshot and lost the line.
   VERSION C3.21 (28/11): ARC avoid from the 28/11 log (brick seen at 240 mm at 1250 mm/s): (1) short reverse brake down to the out speed before
@@ -185,7 +194,7 @@ struct Tr { uint16_t t; int32_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uin
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
-const char* USER_CFG = "kp 10.6;kd 0.4;sp 58;vmax 73;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 215;pass 80;nobs 0;side 0;avmode 3;aout 58;aback 65;out 76;par 500;vout 51;vpar 51;vret 44;vturn 51;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 28/11: avmode 3 (ARC avoid), lat 215 (brick may lie across the line) | 25/11: vfull 1583 + dband 28.5 measured on the floor, C3.11b percentages x 0.731 (vclust 22 = 348 mm/s: simulation with the dead band preferred slower in the square cluster) | 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
+const char* USER_CFG = "kp 10.6;kd 0.4;sp 58;vmax 73;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 215;pass 80;nobs 0;side 0;avmode 3;aout 58;aback 65;out 76;par 500;vout 51;vpar 51;vret 44;vturn 51;retm 0;brev 60;bms 80;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 28/11 C3.24: retm 0 (merge without stopping), brev 60, bms 80 (harder brake) | 28/11: avmode 3 (ARC avoid), lat 215 (brick may lie across the line) | 25/11: vfull 1583 + dband 28.5 measured on the floor, C3.11b percentages x 0.731 (vclust 22 = 348 mm/s: simulation with the dead band preferred slower in the square cluster) | 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
 // ================= EDIT HERE =================
 bool REV_L = true;     // LEFT motor reversed (confirmed)
 bool REV_R = false;
@@ -197,6 +206,9 @@ const float ARC_KD = 0.04f;     // damping on the gyro turn rate
 const float ARC_LOOK = 120;     // look-ahead (mm) when steering onto the lateral offset 'lat'
 const float ARC_CATCH_DEG = 35;  // C3.21: approach angle over the last ARC_SLOW mm before the line
 const float ARC_SLOW = 70;      // C3.20: slow to the catch speed when the sensor bar is this close (mm) to the line
+const float ARC_DECEL = 2500;   // C3.24: braking the robot can really do on the mat (mm/s2, log: it SLIDES when braked harder)
+const float ARC_CLEAR = 110;    // C3.24: room (mm) still needed in front of the brick to curve out once the speed is safe
+const float ARC_LANE = 200;     // C3.23: object closer than this (mm) in the avoid lane -> lane blocked, use the other side
 const float ARC_FACE = 30;      // the wheel axle must be 'lat' out when the nose is still this far (mm) before the brick face
 const float AV_TURN = 60;       // max turn speed while avoiding
 const float AV_SPEED_BOOST = 1.30f; // speed up the avoid segments without changing the wheel ratio
@@ -838,6 +850,10 @@ void drive(float l, float r) {
 // measured by the encoders -> both wheels turn at the RIGHT speed: a weak wheel / sagging battery / different friction does not pull the robot aside, faster acceleration.
 float wiL = 0, wiR = 0; uint32_t tDV = 0;
 bool wpidOk() { return cfg.wpid && cfg.vfull > 100; }
+// C3.24: the highest speed (mm/s) from which the robot can still slow down and curve out before an object 'mm' ahead
+float vSafeMM(float mm);
+// C3.24: % of the old-gearbox speed (C3.11b tuned the raw numbers at vfull 1158) -> same REAL speed through the wheel PID
+float oldPct(float pct) { return wpidOk() ? pct * 1158.0f / cfg.vfull : pct; }
 float dBand = 25.0f;   // C3.16: PWM % below which the loaded robot does not move (measured by 'wcal', stored apart from cfg: key "db")
 // C3.16: measured speed is a straight line above the dead band: v = vfull x (PWM - dband) / (100 - dband) -> PWM needed for pct
 float feedFwd(float pct) { return fabsf(pct) < 1 ? pct : (pct > 0 ? 1 : -1) * (dBand + fabsf(pct) * (100.0f - dBand) / 100.0f); }
@@ -1399,7 +1415,7 @@ bool arcFind(int t, float maxDeg, float maxMm) {   // t = +1 turn RIGHT, -1 turn
 //  3. arc done -> return true, the PD line loop continues right away. No stop - center - turn like the old way.
 bool mergeLine(float hRef) {
   phase = 'M'; logEv('M');
-  const float v = constrain(min(cfg.spdRet, CATCH_PCT + 5), 25.0f, 45.0f);
+  const float v = wpidOk() ? oldPct(CATCH_PCT + 5) : constrain(min(cfg.spdRet, CATCH_PCT + 5), 25.0f, 45.0f);   // C3.24: real ~500 mm/s via the PID
   const float hTravel = heading();
   // 1. keep driving until the line reaches the middle of the sensor bar
   float s0 = dist(); uint32_t t0 = millis(); float lastP = 0; bool had = false, centered = false;
@@ -1410,7 +1426,7 @@ bool mergeLine(float hRef) {
       lastP = posC; had = true;
     }
     float corr = constrain(2.0f * (hTravel - heading()), -10.0f, 10.0f);
-    drive(v - corr, v + corr);
+    driveV(v - corr, v + corr);
   }
   if (!centered) return false;                     // let catchLine (with backing up) handle it
   // 2. arc toward the line heading
@@ -1425,7 +1441,7 @@ bool mergeLine(float hRef) {
     update(); readLine();
     float e = hRef - heading();
     if (e * dir <= 3) break;                       // (nearly) parallel to the line
-    if (dir > 0) drive(inner, outer); else drive(outer, inner);
+    if (dir > 0) driveV(inner, outer); else driveV(outer, inner);   // C3.24: PID keeps the wheel-speed RATIO (raw PWM near the dead band turned far too tight)
   }
   return true;                                     // PD keeps following (small line error is corrected by PD)
 }
@@ -1454,9 +1470,10 @@ void moveMM(float mm, float h, float pct, bool fix = true) {
 float avObX = 0, avObY = 0; bool avObOn = false; float avObOffD = 0;
 float obsRelG() { return wrap180(atan2f(avObY - odoY, avObX - odoX) * 57.2958f - heading()); }
 bool facingObs() { return avObOn && hypotf(avObX - odoX, avObY - odoY) < 450 && fabsf(obsRelG()) < 45; }
+float vSafeMM(float mm) { return sqrtf(2.0f * ARC_DECEL * max(0.0f, mm - ARC_CLEAR)); }
 bool grabLine() {
   phase = 'G'; logEv('G');
-  const float base = 32;
+  const float base = oldPct(32);                   // C3.24: was raw 32 % = just above the dead band of the new gearbox -> crawled
   float lastE = posC; uint32_t t0 = millis(), tPrev = micros(), tLost = 0, tOk = 0;
   while (!aborted && millis() - t0 < 1200) {
     update(); readLine();
@@ -1466,14 +1483,14 @@ bool grabLine() {
       if (!tLost) tLost = millis();
       if (millis() - tLost > 500) { brake(); waitMs(30); return false; }
       int sg = lastE > 0 ? 1 : -1;                   // +1 = line on the RIGHT
-      drive(sg * PIVOT_PCT, -sg * PIVOT_PCT);
+      drive(sg * (PIVOT_PCT + 10), -sg * (PIVOT_PCT + 10));   // C3.24: +10 % (34 % barely turns the new gearbox)
       continue;
     }
     tLost = 0;
     float e = posC, de = (e - lastE) / dt; lastE = e;
     float u = cfg.kp * e + cfg.kd * de;
-    drive(base + u, base - u);
-    if (fabsf(e) < 0.8f) { if (!tOk) tOk = millis(); if (millis() - tOk > 150) return true; } else tOk = 0;
+    driveV(base + u, base - u);
+    if (fabsf(e) < 0.8f) { if (!tOk) tOk = millis(); if (millis() - tOk > 80) return true; } else tOk = 0;   // C3.24: 80 ms (was 150)
   }
   return seen;
 }
@@ -1487,9 +1504,14 @@ bool avoidObstacle() {
   // reached the brick then turned out and swept into it. Now: reverse-brake, read the VL53 again, closer than 'obs x 0.75' then BACK UP (max 15 cm).
   Serial.printf("[OBSTACLE #%d] seen at %u mm\n", nObs, vlMM);
   // C3.19 ARC avoid: keep rolling (no stop, no pivot) unless the brick is already too close to curve around it
-  const bool arcMode = cfg.avMode == 3 && vlMM >= cfg.obs * 0.55f;
-  if (arcMode) Serial.println("  ARC avoid: no stop");
+  // C3.24: roll straight into the curve only when the speed can still be shed in the distance seen; too fast (long straight) -> hard brake
+  //        first (+ back up if too close) like v3.8, then the same curve from standstill. Log 28/11: 1300 mm/s at 294 mm -> slid into the brick.
+  const bool arcMode = cfg.avMode == 3;
+  const float v0 = 0.5f * (vL + vR), vSafe = vSafeMM(vlMM);
+  const bool arcRoll = arcMode && v0 <= vSafe;
+  if (arcRoll) Serial.printf("  ARC avoid: no stop (%.0f mm/s <= safe %.0f)\n", v0, vSafe);
   else {
+  if (arcMode) Serial.printf("  ARC avoid: too fast (%.0f mm/s > safe %.0f) -> hard brake first\n", v0, vSafe);
   hardStop(); waitMs(60);
   {
     const float want = cfg.obs * 0.75f; float b0 = dist(), hb = heading(); uint32_t tb = millis();
@@ -1608,7 +1630,7 @@ bool avoidObstacle() {
   // C2 (avscan 0): narrow track -> do NOT read the line while GOING OUT / PARALLEL (avoid catching the border line), only when RETURNING
   const bool scanOut = cfg.avScan != 0;
   avGRH = h; avGRX = odoX + cosf(h * DEG_TO_RAD) * cfg.sensAx; avGRY = odoY + sinf(h * DEG_TO_RAD) * cfg.sensAx; avGS = s; avGate = false;
-  bool found = false;
+  bool found = false; int sA = s;   // C3.23: side actually used (ARC may switch side once when its lane is blocked)
   if (arcMode) {
     // ===== C3.19 ARC AVOID (avmode 3): the avmode 2 plan (out -> parallel -> back to the line) as ONE smooth curve, no stops =====
     // Odometry + gyro in the frame of the old line: x = forward along it, y = sideways toward the avoid side (wheel axle).
@@ -1616,10 +1638,10 @@ bool avoidObstacle() {
     // PARALLEL: hold 'lat' until the axle is past the back face (long side 205) + 'pass'. BACK: steer at 'aback' toward the line, merge without stopping.
     const float x0 = odoX, y0 = odoY, c0 = cosf(h * DEG_TO_RAD), s0 = sinf(h * DEG_TO_RAD);
     auto ax = [&]() { return c0 * (odoX - x0) + s0 * (odoY - y0); };
-    auto ay = [&]() { return s * (-s0 * (odoX - x0) + c0 * (odoY - y0)); };
+    auto ay = [&]() { return sA * (-s0 * (odoX - x0) + c0 * (odoY - y0)); };
     const float L = lat, xNeed = faceX - nose - ARC_FACE, xRet = faceX + passMm;
     auto steer = [&](float psi, float v) {          // heading h + s*psi (deg); rolling turn, the inner wheel may run slightly backward
-      float e = wrap180(h + s * psi - heading());
+      float e = wrap180(h + sA * psi - heading());
       float corr = constrain(ARC_KH * e - ARC_KD * gz, -1.35f * v, 1.35f * v);
       driveV(v - corr, v + corr);
     };
@@ -1627,31 +1649,61 @@ bool avoidObstacle() {
     { const float vOut = cfg.spdOut * cfg.vfull / 100.0f; uint32_t tb = millis();
       while (!aborted && 0.5f * (vL + vR) > vOut + 100 && millis() - tb < 120) { update(); drive(-cfg.brkRev, -cfg.brkRev); }
       if (millis() - tb > 5) Serial.printf("  ARC: braked %lu ms to %.0f mm/s\n", (unsigned long)(millis() - tb), 0.5f * (vL + vR)); }
-    uint32_t tA = millis(); bool emer = false;
+    uint32_t tA = millis(); bool laneFail = false;
+    // C3.23 LANE BLOCKED (track edge / wall / object beside the line): while driving out or parallel, an object < ARC_LANE mm ahead whose hit point
+    // lies beside the brick (outside its half-width) but inside the lane the robot sweeps -> stop, back up, avoid on the other side.
+    auto laneBlocked = [&](bool par) -> bool {
+      (void)par;
+      if (!vlOk || vlMM <= 20 || vlMM >= ARC_LANE) return false;
+      float rel = wrap180(heading() - h) * sA;      // + = pointing further out
+      float hitY = ay() + (nose + vlMM) * sinf(rel * DEG_TO_RAD);   // sideways position of the object the VL53 sees
+      return hitY > OB_LONG * 0.5f + 20 && hitY < L + ROBOT_HALF_W + 20;   // beside the brick AND inside the lane the robot will sweep
+    };
     const float catchV = cfg.vfull > 100 ? CATCH_PCT * 1158.0f / cfg.vfull : CATCH_PCT;   // C3.20: same REAL catch speed as on the old gearbox (~440 mm/s)
-    phase = '2';
-    while (!aborted && millis() - tA < 1500) {      // OUT
-      update();
-      float x = ax(), y = ay();
-      if (y >= L - 15 || x >= xRet) break;
-      if (!emer && vlOk && vlMM > 20 && vlMM < 60 && fabsf(wrap180(heading() - h)) < 35) {   // nose almost on the brick -> stop and pivot out
-        emer = true; logEv('B'); hardStop(); turnTo(h + s * 80, cfg.spdTurn); continue;
+    for (int tryN = 0; tryN < 2; tryN++) {
+      bool blocked = false, stall = false; int nRec = 0; float dProg = dist(); uint32_t tProg = millis();
+      phase = '2';
+      while (!aborted && millis() - tA < 1500) {      // OUT
+        update();
+        float x = ax(), y = ay();
+        if (y >= L - 15 || x >= xRet) break;
+        if (laneBlocked(false)) { blocked = true; break; }
+        // C3.24: nose < 70 mm from something, or pushing without moving (log: stuck 1.5 s against the brick at -52 deg) -> back up, turn further out
+        if (millis() - tProg > 250) { stall = dist() - dProg < 8; dProg = dist(); tProg = millis(); }
+        if ((vlOk && vlMM > 20 && vlMM < 70) || stall) {
+          if (++nRec > 3) { blocked = true; break; }
+          logEv('B'); hardStop(); stall = false;
+          moveMM(-60, heading(), 30);
+          turnTo(heading() + sA * 20, cfg.spdTurn);
+          dProg = dist(); tProg = millis(); continue;
+        }
+        float psi = atan2f(L - y, max(ARC_LOOK, xNeed - x)) * 57.2958f;
+        if (y < 0.5f * L) psi = max(psi, ang);
+        steer(constrain(psi, 0.0f, 85.0f), cfg.spdOut);
       }
-      float psi = atan2f(L - y, max(ARC_LOOK, xNeed - x)) * 57.2958f;
-      if (y < 0.5f * L) psi = max(psi, ang);
-      steer(constrain(psi, 0.0f, 85.0f), cfg.spdOut);
-    }
-    phase = '4'; logEv('4');
-    while (!aborted && millis() - tA < 4000) {      // PARALLEL
-      update();
-      if (avSideGrab != 0) { readLine(); static int sh = 0; sh = sideLineNow() ? sh + 1 : 0; if (sh >= 2) { sh = 0; avSideHit = true; logEv('Y'); return grabDone(); } }
-      if (ax() >= xRet) break;
-      steer(constrain(atan2f(L - ay(), ARC_LOOK) * 57.2958f, -35.0f, 35.0f), cfg.spdPar);
+      if (!blocked) { phase = '4'; logEv('4'); }
+      while (!blocked && !aborted && millis() - tA < 4000) {      // PARALLEL
+        update();
+        if (avSideGrab != 0) { readLine(); static int sh = 0; sh = sideLineNow() ? sh + 1 : 0; if (sh >= 2) { sh = 0; avSideHit = true; logEv('Y'); return grabDone(); } }
+        if (ax() >= xRet) break;
+        if (laneBlocked(true)) { blocked = true; break; }
+        if (millis() - tProg > 300) { if (dist() - dProg < 8) { blocked = true; break; } dProg = dist(); tProg = millis(); }   // C3.24: stuck while parallel
+        steer(constrain(atan2f(L - ay(), ARC_LOOK) * 57.2958f, -35.0f, 35.0f), cfg.spdPar);
+      }
+      if (!blocked) break;
+      // C3.23: lane blocked -> stop, face the old heading, back up behind the start point, then the same curve on the OTHER side
+      logEv('B'); hardStop();
+      Serial.printf("  ARC: lane blocked (VL53 %u mm) -> %s\n", vlMM, tryN ? "both sides blocked" : "other side");
+      if (tryN) { laneFail = true; break; }
+      turnTo(h, cfg.spdTurn);
+      moveMM(-(ax() + 40), h, 30);
+      sA = -sA; avGS = sA; avSideGrab = 0; tA = millis();
     }
     if (!scanOut) { avGLim = avCross() * 0.6f; avGate = true; }   // only accept a line once the sensor bar is back inside the offset
     phase = '6'; logEv('5'); int hits = 0;
-    while (!aborted && millis() - tA < 6000) {      // BACK to the line
+    while (!laneFail && !aborted && millis() - tA < 6000) {      // BACK to the line
       update(); readLine();
+      if (vlOk && vlMM > 20 && vlMM < 90) { logEv('B'); hardStop(); break; }   // C3.23: something right ahead -> do not push into it
       if (avSideGrab != 0) { static int sh2 = 0; sh2 = sideLineNow() ? sh2 + 1 : 0; if (sh2 >= 2) { sh2 = 0; avSideHit = true; logEv('Y'); found = true; break; } }
       if (peakV >= 0.6f && nBlack >= 1 && avGateOK()) {
         if (++hits == 1) { enterPos = posC; nb2 = false; }
@@ -1689,12 +1741,12 @@ bool avoidObstacle() {
   if (found && avSideHit) { avSideGrab = 0; return grabDone(); }   // C3.7: on a bend - follow the line immediately on the bend side
   bool arc = false, ok = false; avGate = false;
   if (!found && arcMode) {                         // C3.20: ARC passed the line without seeing it -> turn back toward the old heading (the line is behind the bar)
-    logEv('X'); ok = sweepFind(s > 0 ? -1 : 1, 110, 170, 2, 2.5f, PIVOT_PCT + 12);   // C3.21: stronger pivot (34 % stalled on the new gearbox)
+    logEv('X'); ok = sweepFind(sA > 0 ? -1 : 1, 110, 170, 2, 2.5f, PIVOT_PCT + 12);   // C3.21: stronger pivot (34 % stalled on the new gearbox)
     if (ok) { fixDir(); phase = '-'; logEv('o'); return true; }
   }
-  if (!found) { phase = '7'; logEv('7'); found = arcFind(s, 150, 900); arc = true; }
+  if (!found) { phase = '7'; logEv('7'); found = arcFind(sA, 150, 900); arc = true; }
   if (found && !arc && cfg.retMode == 0) ok = mergeLine(h);   // C3.22: ARC follows 'retm' too (1 = stop-align-turn, catches the line even after overshooting)
-  if (found && !ok) ok = catchLine(s, h, !arc);
+  if (found && !ok) ok = catchLine(sA, h, !arc);
   if (!ok) { logEv('X'); ok = sweepFind(dirExp(), 130, 170, 2, 2.5f); }   // C3.8: sweep first toward where the line continues (heading h / bend side)   // v3.7: wider sweep (the line may have changed direction - obstacle between 2 bends); if following backward, fixDir turns back
   if (ok) fixDir();
   phase = '-';
@@ -2122,7 +2174,7 @@ void runCourse() {
         }
         if (junc) target = min(target, cfg.base * 0.8f);
         if (gridOn) target = min(target, (float)min((int)cfg.cornerSpd, (int)cfg.vCluster));   // C3.5 inside square clusters: slow (vclust), drive each edge exactly
-        if (vlOn && vlOk && vlMM < SLOW_MM) target = min(target, 35.0f);
+        if (vlOn && vlOk && vlMM < cfg.obs + 150) target = min(target, max(oldPct(35), vSafeMM(vlMM) * 100.0f / max(1.0f, cfg.vfull)));   // C3.24: slow to a speed that can still stop / curve out
         if (millis() - tCorner < 300) target = min(target, cfg.cornerSpd);    // approaching / at a 90-degree corner
         // v3.2 CURVES: lateral acceleration = v x turn rate <= alat -> the sharper the bend (large gz) the lower the speed, smooth cornering
         if (cfg.alat > 0 && cfg.vfull > 100) { float w = fabsf(gz) * 0.0174533f; if (w > 0.5f) target = min(target, max((float)cfg.cornerSpd, cfg.alat / w / cfg.vfull * 100.0f)); }
@@ -2162,7 +2214,7 @@ void runCourse() {
         }
         if (junc || millis() - tCorner < 220) target = min(target, cfg.cornerSpd);
         if (gridOn) target = min(target, (float)min((int)cfg.cornerSpd, (int)cfg.vCluster));   // C3.5 inside square clusters: slow (vclust), drive each edge exactly
-        if (vlOn && vlOk && vlMM < SLOW_MM) target = min(target, 35.0f);
+        if (vlOn && vlOk && vlMM < cfg.obs + 150) target = min(target, max(oldPct(35), vSafeMM(vlMM) * 100.0f / max(1.0f, cfg.vfull)));   // C3.24: slow to a speed that can still stop / curve out
         if (cfg.alat > 0 && cfg.vfull > 100) {
           float w = fabsf(gz) * 0.0174533f;
           if (w > 0.5f) target = min(target, max((float)cfg.cornerSpd, cfg.alat / w / cfg.vfull * 100.0f));
@@ -2908,7 +2960,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.22 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.24 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
