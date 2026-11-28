@@ -1,6 +1,12 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.27 (28/11): CIRCLE CLUSTER STRAIGHT THROUGH (log 28/11: 160 s looping; circles R 10-11 cm ~ the 115 mm sensor offset -> the robot
+                    spun on each circle). Entry = while driving straight a junction splits slowly to ONE side, confirmed by the next junction 40-200 mm
+                    later (traces on both sides / full bar). Then: hold the entry heading, keep the lateral offset from the entry line ~0 by odometry,
+                    ignore the arcs, and take the line again when a single clean centered line is seen for 40 mm after 380 mm (exit line); none by
+                    1100 mm -> normal following. Log events 'E' / 'e'. Simulation (R 100/105/110 mm, 7 variants each): 21/21 straight through,
+                    ~1.8 s instead of 2.1-2.4 s; no false trigger on squares, hexagons, pulses, zigzags.
   VERSION C3.26 (28/11): CIRCLE CLUSTER: square-grid mode ('Q': stop at the junction center and pivot) was latched by mistake at the touching
                     points of the circles (black covers the bar there too) -> the robot pivoted inside the circles and looped (simulation: every slow /
                     failed circle run). Now grid mode is only confirmed on a PURE T (no line straight on after it) and is cancelled as soon as the
@@ -226,6 +232,8 @@ const float OB_LONG = 205, OB_SHORT = 95;   // OBSTACLE = BRICK 205 x 95 x 95 mm
 const float CATCH_PCT = 38;     // speed right after touching the line on return
 const float TURN_MIN = 32,   // C3.16: 26 -> 32 (loaded robot does not move below ~28 % PWM) | C3.15: 20 -> 26: the 20.7:1 gearbox stalled 0.3-0.5 s at the end of turns
             TURN_TOL = 3.0f, KP_T = 1.4f, KD_T = 0.07f;   // gyro-controlled turning
+const float CX_MIN = 380;       // C3.27: straight through the circle cluster at least this far (mm, from the first split) before accepting the exit line
+const float CX_MAX = 1100;      // C3.27: no exit line by then -> back to normal line following
 const float CIRC_NO_REV = 600; // C3.15: this far (mm) after going round a circle, 'running backward' needs 120 mm of evidence instead of 60
 const float HEX_GAP = 4;       // C3.11: white gap between the 2 branches (channels) ...
 const float HEX_SPLIT = 30;    // ... must appear within this many mm from the start of the junction
@@ -1946,6 +1954,7 @@ void runCourse() {
   // main heading (hRef) (equal -> pref). Side branch -> bring the WHEEL AXLE to the junction CENTER then turn into the branch (log 'Q').
   // (before: the PID only passed the side branch for ~0.1 s -> missed the branch -> robot circled / ran backward depending on the cluster offset up or down)
   bool gridOn = false; float gridJ = -1e9, gridCand = -1e9; uint8_t clusterPref = 0;
+  float cxCandD = -1e9, cxX = 0, cxY = 0, cxH = 0;   // C3.27 circle cluster candidate (position / heading on the entry line)
   int qMB = 0; float hexW = -1e9, hRefHex = 0, dCv = -1e9, cvH0 = 0, dCircle = -1e9;   // C3.11 hexagon cluster: hexW = position of the last Y-junction, hRefHex = locked main heading
   float hexD = -1e9, sqCandD = -1e9; bool qPend = false; float qL = 0, qR = 0, qLc = 0, qD0 = 0, qD1 = 0, qH0 = 0; bool qFull = false; bool qFast = false;
   auto inSqCluster = [&]() { int n = 0; for (float x : jT) if (dist() - x < 500) n++; return n >= 2; };   // >= 2 junctions within 45 cm = inside a CLUSTER
@@ -2040,6 +2049,41 @@ void runCourse() {
       if (qMB >= 2) sqCandD = -1e9;                    // splitting into 2 diagonal branches = Y-junction (hexagon) -> not one
       qL = max(qL, lineC - (b0s - 3.5f)); qR = max(qR, (bLe - 3.5f) - lineC);
     }
+    // C3.27 CIRCLE CLUSTER = DRIVE STRAIGHT THROUGH. Entry and exit lines are on ONE straight line; inside, the arcs of the 5 touching circles
+    //  stay within ~0.3 R of it. Following the arcs (R ~ 10 cm ~ the sensor offset) made the robot spin on each circle and loop (log 28/11, 160 s).
+    //  Signature, measured in the simulator: driving straight, a junction that splits SLOWLY to ONE side (2 traces, not a full bar, not a fast Y)
+    //  = candidate; the next junction 40-200 mm later has traces on BOTH sides / covers the bar (touching point) = confirmed -> hold the entry heading, keep the
+    //  lateral offset from the entry line ~0 with odometry, ignore the arcs, and pick up the line again once a single clean line is centered
+    //  for 40 mm after CX_MIN mm (the exit line). No exit within CX_MAX mm -> back to normal line following.
+    if (!junc && wasJunc && cfg.clusterMode && !inAvoid) {
+      const bool straightIn = fabsf(wrap180(heading() - hRef)) < 12.0f && fabsf(gzSlow) < 25.0f;
+      const bool oneSide = (qL >= 2.5f && qR <= 1.2f) || (qR >= 2.5f && qL <= 1.2f);
+      if (cxCandD < -1e8 && qMB >= 2 && !qFull && !qFast && straightIn && oneSide) { cxCandD = dist(); cxX = odoX; cxY = odoY; cxH = heading(); }
+      else if (cxCandD > -1e8 && qMB >= 2 && (qFull || (max(qL, qR) >= 2.5f && min(qL, qR) >= 1.5f)) && !qFast && dist() - cxCandD > 40.0f && dist() - cxCandD < 200.0f && fabsf(wrap180(heading() - cxH)) < 25.0f) {
+        logEv('E'); phase = 'E';
+        const float c0 = cosf(cxH * DEG_TO_RAD), s0 = sinf(cxH * DEG_TO_RAD), d0c = cxCandD;
+        float okLen = 0, lastD = dist(); bool exitOk = false; uint32_t tc = millis();
+        const float v = max((float)cfg.cornerSpd, 30.0f);
+        while (!aborted && millis() - tc < 3000) {
+          update(); readLine();
+          float trav = dist() - d0c, y = -s0 * (odoX - cxX) + c0 * (odoY - cxY);   // + = left of the entry line
+          if (trav > CX_MAX) break;
+          bool clean = seen && nBlob == 1 && nBlack <= 3 && fabsf(posC) < 1.5f;
+          okLen = (clean && trav > CX_MIN) ? okLen + (dist() - lastD) : 0; lastD = dist();
+          if (okLen >= 40.0f) { exitOk = true; break; }
+          float psi = cxH - constrain(0.25f * y, -15.0f, 15.0f);              // steer back onto the entry line
+          float corr = constrain(2.5f * wrap180(psi - heading()) - 0.04f * gz, -0.8f * v, 0.8f * v);
+          driveV(v - corr, v + corr);
+        }
+        Serial.printf("CIRCLES: straight through %.0f mm -> %s\n", dist() - d0c, exitOk ? "exit line found" : "no exit line, back to line following");
+        logEv(exitOk ? 'e' : 'X'); cxCandD = -1e9;
+        hRef = cxH; gridOn = false; gridCand = -1e9; hexW = -1e9; dCv = -1e9; crLastD = dist();
+        lineCtl = 0; centeredD = -1e9; nR = nL = 0; phase = '-'; lastErr = 0; tPrev = micros(); spd = min(spd, (float)cfg.cornerSpd);
+        cornerSide = 0; lastRD = lastLD = lastBD = -1e9; tStraight = millis(); wasJunc = false;
+        continue;
+      }
+    }
+    if (cxCandD > -1e8 && dist() - cxCandD > 220.0f) cxCandD = -1e9;
     // C3.11 HEXAGON CLUSTER: Y-junction (black trace SPLITTING into 2 slanted branches) -> enable hexagon mode for HEX_MM (each new Y-junction extends it)
     if (!junc && wasJunc && cfg.clusterMode && cfg.jMode && !inAvoid && qFast && fabsf(gzSlow) < HEX_GZ && dist() - qD0 < 90.0f) {   // large gzSlow = touching circles, not a hexagon
       if (dist() - hexW > HEX_MM) { logEv('H'); if (dist() - hexW > 3.0f * HEX_MM) hRefHex = qH0; }   // just ENTERED the cluster: lock the main heading = ROBOT heading at the first Y-junction (left the cluster briefly and re-entered -> keep the old heading)
@@ -2986,7 +3030,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.26 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.27 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
@@ -3009,7 +3053,7 @@ template <class F> void writeLog(F out) {
   if (!cfg.avMode) { snprintf(b, sizeof b, " | brick measured width ~%.0f (%s)", 2 * avHalfW, avLen < 150 ? "ACROSS" : "READ"); out(b); }
   out("\n");
   snprintf(b, sizeof b, "RESULT: %s | %.2f s | %.0f mm | %.2f m/s | %d obstacles | %d line losses\n", res.why, res.t, res.d, res.v, res.obs, res.lost); out(b);
-  out("EVENTS (K 90-degree corner seen, L line lost, O obstacle met, P start: drive straight out of the black box, H hexagon cluster: main heading locked, 1/4/5/7 avoid step started (7 = arc to find line), T line seen while avoiding, M follow line while moving, G line seen mid-way -> follow now, C line caught (old way: stop-center-turn), X avoid saw no line, Z failed to catch line, R back up to find line (overshot), V spinning stopped, o avoid done, F finish, u ignore U-TURN line in cluster, q line lost on curve -> straight + turn now, W avoid: crossed the line -> drive onto it then turn, D avoid: following backward -> turn 180, B avoid: too close to brick -> back up, m turn by MAP, x map mismatch -> off, g line lost in the middle -> go straight to re-catch (dashed line), > < chose turn RIGHT/LEFT, reason: b branch seen on 1 side, n T-junction by preference, f unclear):\n");
+  out("EVENTS (E circle cluster: drive straight through, e circle exit line found, K 90-degree corner seen, L line lost, O obstacle met, P start: drive straight out of the black box, H hexagon cluster: main heading locked, 1/4/5/7 avoid step started (7 = arc to find line), T line seen while avoiding, M follow line while moving, G line seen mid-way -> follow now, C line caught (old way: stop-center-turn), X avoid saw no line, Z failed to catch line, R back up to find line (overshot), V spinning stopped, o avoid done, F finish, u ignore U-TURN line in cluster, q line lost on curve -> straight + turn now, W avoid: crossed the line -> drive onto it then turn, D avoid: following backward -> turn 180, B avoid: too close to brick -> back up, m turn by MAP, x map mismatch -> off, g line lost in the middle -> go straight to re-catch (dashed line), > < chose turn RIGHT/LEFT, reason: b branch seen on 1 side, n T-junction by preference, f unclear):\n");
   snprintf(b, sizeof b, "  (%d junctions J, %d line losses L; important events below, J omitted)\n", cntJ, cntL); out(b);
   for (int i = 0; i < evCount(); i++) { const Ev &e = evAt(i); if (e.c == 'J') continue; snprintf(b, sizeof b, "  %c %6.0f mm %6.2f s  heading %+7.1f  black %u\n", e.c, e.d, e.t, e.h, e.nb); out(b); }
   out("TABLE 50ms: t(s) d(mm) pos(-3.5..3.5, -- = lost) spd(%) step(P start,L line,J junction,K back to corner,S search,1-7 avoid,M follow line,G grab now,C catch line) black vl(mm) heading(deg) 8ch(D1..D8, # = black)\n");
