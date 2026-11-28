@@ -1,6 +1,10 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.19 (28/11): ARC (parabola-like) obstacle avoid = avmode 3. Same plan as avmode 2 (out -> parallel -> back), but the robot does NOT
+                    stop when it sees the brick, does NOT pivot to the out angle and does NOT stop at the line: it keeps rolling and steers one smooth
+                    curve with odometry + gyro (out at 'aout', curve onto the offset 'lat', hold it past the brick, back at 'aback', merge into the line).
+                    Brick orientation unknown -> lateral offset 'lat' 215, pass the long side (205) + 'pass'. Brick closer than 0.55 x obs -> old stop + pivot.
   VERSION C3.18 (25/11): OLED speed buttons stop at the limit (sp 80, vmax 100); before, 73 + 3 x 10 gave vmax 103.
   VERSION C3.17 (25/11): tuning WITHOUT the USB cable: the web page (WiFi LINE-ROBOT, 192.168.4.1) gets a COMMAND box that sets any parameter
                     ("vmax 80;alat 4500", name-value pairs only) and shows the full parameter line (same as 'export') to copy from the phone.
@@ -172,12 +176,17 @@ struct Tr { uint16_t t; int32_t d; int8_t p; uint8_t v; char ph; uint8_t nb; uin
 // ================= YOUR PARAMETERS =================
 // Loaded automatically when: the code is flashed for the first time (no parameters yet), or after 'reset'. New code still KEEPS the parameters stored in the robot.
 // UPDATE: type 'export' in the Serial Monitor -> copy the whole line -> paste between the 2 double quotes below (replace the old line).
-const char* USER_CFG = "kp 10.6;kd 0.4;sp 58;vmax 73;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 165;pass 80;nobs 0;side 0;avmode 2;aout 58;aback 65;out 76;par 500;vout 51;vpar 51;vret 44;vturn 51;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 25/11: vfull 1583 + dband 28.5 measured on the floor, C3.11b percentages x 0.731 (vclust 22 = 348 mm/s: simulation with the dead band preferred slower in the square cluster) | 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
+const char* USER_CFG = "kp 10.6;kd 0.4;sp 58;vmax 73;cspd 39;vfast 73;mpre 250;tlead 20;jmode 1;pref 0;mask 0;auto 1;cpr 576.3;wheel 48;track 128;sens 115;fin 500;fgo 180;vk 1;obs 280;lat 215;pass 80;nobs 0;side 0;avmode 3;aout 58;aback 65;out 76;par 500;vout 51;vpar 51;vret 44;vturn 51;retm 1;brev 35;bms 50;dec 50;roled 0;wifi 1;lag 8;wpid 1;wkp 1.5;wki 6;alat 3800;vfull 1583;curve 1;brake 0.78;kpb 1.45;piv 1.75;uturn 1;avscan 0;jnmode 1;cluster 1;vclust 22;pclust 2;dband 25";   // 28/11: avmode 3 (ARC avoid), lat 215 (brick may lie across the line) | 25/11: vfull 1583 + dband 28.5 measured on the floor, C3.11b percentages x 0.731 (vclust 22 = 348 mm/s: simulation with the dead band preferred slower in the square cluster) | 21/11: NEW MOTORS, gearbox ~20.7:1 (cpr 576.3) - speed percentages x 0.71 to keep the same REAL speed in corners/clusters/avoidance, vfull estimated -> run wcal | 11/11: track 128, aout 58, out 76, par 500 | 29/10: robot gets a new layer + photoresistor bar 10 cm, height 6-7 mm
 // ================= EDIT HERE =================
 bool REV_L = true;     // LEFT motor reversed (confirmed)
 bool REV_R = false;
 const float PIVOT_PCT = 34;     // line search / corner turn speed
 const float AV_PCT = 60;        // straight speed while avoiding obstacles
+// C3.19 ARC avoid (avmode 3): steering gains and geometry
+const float ARC_KH = 2.5f;      // % wheel difference per degree of heading error
+const float ARC_KD = 0.04f;     // damping on the gyro turn rate
+const float ARC_LOOK = 120;     // look-ahead (mm) when steering onto the lateral offset 'lat'
+const float ARC_FACE = 30;      // the wheel axle must be 'lat' out when the nose is still this far (mm) before the brick face
 const float AV_TURN = 60;       // max turn speed while avoiding
 const float AV_SPEED_BOOST = 1.30f; // speed up the avoid segments without changing the wheel ratio
 const float ROBOT_HALF_W = 80;  // half the robot width (robot ~157 mm wide)
@@ -671,10 +680,7 @@ void cfgLoad() {
   Cfg t; CfgV12 o; CfgV21 q; CfgV22 w; CfgV24 y; CfgV27 z; CfgV28 x8; CfgV295 x9; CfgV296 xa; CfgV31 xb; CfgV32 xc; CfgV35 xd;
   if (prefs.getBytes("c", &t, sizeof(t)) == sizeof(t) && t.magic == MAGIC) {
     cfg = t;
-    if (cfg.avMode > 2) {   // C3.4: avmode 3 (parabola) removed -> back to FLOWING avoid avmode 2 with the old parameters
-      cfg.avMode = 2; cfg.aout = 65; cfg.aback = 65; cfg.outMm = 260; cfg.parMm = 350; cfgSave();
-      Serial.println("C3.4: avmode 3 removed -> back to avmode 2 (aout 65, aback 65, out 260, par 350)");
-    }
+    if (cfg.avMode > 3) { cfg.avMode = 2; cfgSave(); }   // C3.19: avmode 3 = ARC avoid (new); anything above -> flowing avoid
     return;
   }
   { CfgC31 c31;   // version C3.1 - C3.4 -> C3.5: KEEP EVERYTHING (calibration, parameters), add vclust 40 / pclust 2
@@ -1469,6 +1475,10 @@ bool avoidObstacle() {
   // v3.8 HARD BRAKE + BACK UP TO A SAFE DISTANCE: the VL53 sees the brick late (e.g. 22 cm) while the robot runs fast -> the robot slides
   // reached the brick then turned out and swept into it. Now: reverse-brake, read the VL53 again, closer than 'obs x 0.75' then BACK UP (max 15 cm).
   Serial.printf("[OBSTACLE #%d] seen at %u mm\n", nObs, vlMM);
+  // C3.19 ARC avoid: keep rolling (no stop, no pivot) unless the brick is already too close to curve around it
+  const bool arcMode = cfg.avMode == 3 && vlMM >= cfg.obs * 0.55f;
+  if (arcMode) Serial.println("  ARC avoid: no stop");
+  else {
   hardStop(); waitMs(60);
   {
     const float want = cfg.obs * 0.75f; float b0 = dist(), hb = heading(); uint32_t tb = millis();
@@ -1478,6 +1488,7 @@ bool avoidObstacle() {
       driveV(-28 - corr, -28 + corr);
     }
     if (b0 - dist() > 3) { hardStop(-1); waitMs(40); }
+  }
   }
   const float gap = min((float)vlMM, cfg.obs);    // distance from VL53 to the obstacle face AFTER stopping / backing up
   // v3.7: remember the obstacle POSITION (coordinates) -> after re-catching the line, check whether the robot is running BACK toward it
@@ -1510,8 +1521,11 @@ bool avoidObstacle() {
   const float ab = constrain(cfg.aback, 20.0f, 90.0f), sinB = sinf(ab * DEG_TO_RAD);
   float ang, lat, outDist, passMm, halfW = 0, lenAlong = 0;
   phase = '1'; logEv('1');
-  const bool flowAvoid = cfg.avMode == 2;   // v3.5 FLOWING AVOID: after the first turn-out, NO more stop-and-turn: the robot STEERS continuously into the parallel and return segments (~1 s faster)
-  if (cfg.avMode >= 1) {
+  const bool flowAvoid = cfg.avMode >= 2;   // v3.5 FLOWING AVOID: after the first turn-out, NO more stop-and-turn: the robot STEERS continuously into the parallel and return segments (~1 s faster)
+  if (arcMode) {
+    // C3.19 ARC: brick orientation unknown -> lateral offset 'lat' (215 clears a brick lying ACROSS the line), pass the LONG side + 'pass'
+    ang = constrain(cfg.aout, 30.0f, 85.0f); lat = max(cfg.lat, 120.0f); outDist = 0; passMm = OB_LONG + cfg.pass;
+  } else if (cfg.avMode >= 1) {
     // ===== MANUAL: drive EXACTLY the distances you set (adjust on the web: 'Diagonal out', 'Parallel') =====
     ang = constrain(cfg.aout, 30.0f, 90.0f);
     turnTo(h + ang * s, cfg.spdTurn);                  // the turn OUT is still a pivot in place (needs the lateral offset right away so it does not sweep into the brick)
@@ -1560,7 +1574,7 @@ bool avoidObstacle() {
 
   }
   avAng = ang; avHalfW = halfW; avLat = lat; avPass = passMm; avGap = gap; avLen = lenAlong; avOut = outDist;
-  Serial.printf("  %s | out angle %.0f | diagonal %.0f (lateral %.0f) | parallel %.0f\n", cfg.avMode == 2 ? "FLOW" : cfg.avMode ? "MANUAL" : "AUTO", ang, outDist, lat, passMm);
+  Serial.printf("  %s | out angle %.0f | diagonal %.0f (lateral %.0f) | parallel %.0f\n", arcMode ? "ARC" : cfg.avMode >= 2 ? "FLOW" : cfg.avMode ? "MANUAL" : "AUTO", ang, outDist, lat, passMm);
   avE1 = cfg.avMode >= 1 ? lastTurnErr : 0;
   // FROM HERE ON READ THE LINE CONTINUOUSLY: line seen (e.g. a line curving back close) -> FOLLOW NOW, do not finish the avoid sequence
   auto grabDone = [&]() -> bool {
@@ -1583,31 +1597,82 @@ bool avoidObstacle() {
   // C2 (avscan 0): narrow track -> do NOT read the line while GOING OUT / PARALLEL (avoid catching the border line), only when RETURNING
   const bool scanOut = cfg.avScan != 0;
   avGRH = h; avGRX = odoX + cosf(h * DEG_TO_RAD) * cfg.sensAx; avGRY = odoY + sinf(h * DEG_TO_RAD) * cfg.sensAx; avGS = s; avGate = false;
-  phase = '2'; bool hit = straightMM(outDist, h + ang * s, cfg.spdOut, scanOut, 0, false, true, flowAvoid); avOverOut = flowAvoid ? 0 : lastOver;
-  if (hit) return grabDone();
-  if (!flowAvoid) { phase = '3'; turnTo(h, cfg.spdTurn, scanOut); avE3 = lastTurnErr;
-    if (turnHitLine) return grabDone(); }
-  // 4. parallel. Only reads the line in the SECOND HALF (wheel axle past the obstacle front) - to catch the line when the obstacle is on a bend
-  //    a curved line crossing the path. Needs >= 2 black channels, 3 reads in a row -> no false catch on the obstacle edge / dirt.
-  // only read the line once the sensor bar is level with the obstacle front (before that it only sees the obstacle edge)
-  phase = '4'; logEv('4'); bool found = straightMM(passMm, h, cfg.spdPar, scanOut, 0, false, true, flowAvoid); avOverPar = flowAvoid ? 0 : lastOver;
-  if (found) return grabDone();
-  if (!scanOut) { avGLim = avCross() * 0.6f; avGate = true; }   // from here on only accept a line once the sensor bar is >= 40% back inside the offset
-  if (!flowAvoid) { phase = '5'; logEv('5'); turnTo(h - ab * s, cfg.spdTurn, true);   // turning and the line is seen -> follow now
-    found = turnHitLine; avE5 = lastTurnErr;
-    if (found) return grabDone(); }
-  const float need = lat / sinB;
-  const float retMin = 0;                          // read the line NOW (a curved line may already be ahead of the sensor bar after the turn)
-  // 6. diagonal back: drive fast until the sensor bar is near the line, then SLOW DOWN (CATCH_PCT) so the line is not crossed too far
-  const float fastLen = max(0.0f, need - cfg.sensAx - 50.0f / sinB);   // slow down when the sensor bar is ~5 cm from the line
-  // touches the line -> NO stop, follow the line now (mergeLine). Only if that fails use the old way (catchLine).
-  const bool stopL = cfg.retMode == 1;              // STOP-ALIGN-TURN: brake as soon as the line is touched
-  if (!found) { phase = '6'; found = straightMM(fastLen, h - ab * s, cfg.spdRet, true, retMin, stopL); }
-  if (!found) found = straightMM(1.8f * need - fastLen, h - ab * s, min(cfg.spdRet, CATCH_PCT), true, 0, stopL);
+  bool found = false;
+  if (arcMode) {
+    // ===== C3.19 ARC AVOID (avmode 3): the avmode 2 plan (out -> parallel -> back to the line) as ONE smooth curve, no stops =====
+    // Odometry + gyro in the frame of the old line: x = forward along it, y = sideways toward the avoid side (wheel axle).
+    // OUT: steer at 'aout' until half of 'lat', then curve onto the offset 'lat' so it is reached before the nose gets to the brick face.
+    // PARALLEL: hold 'lat' until the axle is past the back face (long side 205) + 'pass'. BACK: steer at 'aback' toward the line, merge without stopping.
+    const float x0 = odoX, y0 = odoY, c0 = cosf(h * DEG_TO_RAD), s0 = sinf(h * DEG_TO_RAD);
+    auto ax = [&]() { return c0 * (odoX - x0) + s0 * (odoY - y0); };
+    auto ay = [&]() { return s * (-s0 * (odoX - x0) + c0 * (odoY - y0)); };
+    const float L = lat, xNeed = faceX - nose - ARC_FACE, xRet = faceX + passMm;
+    auto steer = [&](float psi, float v) {          // heading h + s*psi (deg); rolling turn, the inner wheel may run slightly backward
+      float e = wrap180(h + s * psi - heading());
+      float corr = constrain(ARC_KH * e - ARC_KD * gz, -1.35f * v, 1.35f * v);
+      driveV(v - corr, v + corr);
+    };
+    uint32_t tA = millis(); bool emer = false;
+    phase = '2';
+    while (!aborted && millis() - tA < 1500) {      // OUT
+      update();
+      float x = ax(), y = ay();
+      if (y >= L - 15 || x >= xRet) break;
+      if (!emer && vlOk && vlMM > 20 && vlMM < 60 && fabsf(wrap180(heading() - h)) < 35) {   // nose almost on the brick -> stop and pivot out
+        emer = true; logEv('B'); hardStop(); turnTo(h + s * 80, cfg.spdTurn); continue;
+      }
+      float psi = atan2f(L - y, max(ARC_LOOK, xNeed - x)) * 57.2958f;
+      if (y < 0.5f * L) psi = max(psi, ang);
+      steer(constrain(psi, 0.0f, 85.0f), cfg.spdOut);
+    }
+    phase = '4'; logEv('4');
+    while (!aborted && millis() - tA < 4000) {      // PARALLEL
+      update();
+      if (avSideGrab != 0) { readLine(); static int sh = 0; sh = sideLineNow() ? sh + 1 : 0; if (sh >= 2) { sh = 0; avSideHit = true; logEv('Y'); return grabDone(); } }
+      if (ax() >= xRet) break;
+      steer(constrain(atan2f(L - ay(), ARC_LOOK) * 57.2958f, -35.0f, 35.0f), cfg.spdPar);
+    }
+    if (!scanOut) { avGLim = avCross() * 0.6f; avGate = true; }   // only accept a line once the sensor bar is back inside the offset
+    phase = '6'; logEv('5'); int hits = 0;
+    while (!aborted && millis() - tA < 6000) {      // BACK to the line
+      update(); readLine();
+      if (avSideGrab != 0) { static int sh2 = 0; sh2 = sideLineNow() ? sh2 + 1 : 0; if (sh2 >= 2) { sh2 = 0; avSideHit = true; logEv('Y'); found = true; break; } }
+      if (peakV >= 0.6f && nBlack >= 1 && avGateOK()) {
+        if (++hits == 1) { enterPos = posC; nb2 = false; }
+        if (maxRun >= 2) nb2 = true;
+        if (hits >= 3 && nb2) { logEv('T'); found = true; break; }
+      } else hits = 0;
+      float y = ay();
+      if (y < -0.6f * L) break;                     // went well past the line without seeing it
+      steer(-ab, y < 90 ? min(cfg.spdRet, CATCH_PCT) : cfg.spdRet);
+    }
+  } else {
+    phase = '2'; bool hit = straightMM(outDist, h + ang * s, cfg.spdOut, scanOut, 0, false, true, flowAvoid); avOverOut = flowAvoid ? 0 : lastOver;
+    if (hit) return grabDone();
+    if (!flowAvoid) { phase = '3'; turnTo(h, cfg.spdTurn, scanOut); avE3 = lastTurnErr;
+      if (turnHitLine) return grabDone(); }
+    // 4. parallel. Only reads the line in the SECOND HALF (wheel axle past the obstacle front) - to catch the line when the obstacle is on a bend
+    //    a curved line crossing the path. Needs >= 2 black channels, 3 reads in a row -> no false catch on the obstacle edge / dirt.
+    // only read the line once the sensor bar is level with the obstacle front (before that it only sees the obstacle edge)
+    phase = '4'; logEv('4'); found = straightMM(passMm, h, cfg.spdPar, scanOut, 0, false, true, flowAvoid); avOverPar = flowAvoid ? 0 : lastOver;
+    if (found) return grabDone();
+    if (!scanOut) { avGLim = avCross() * 0.6f; avGate = true; }   // from here on only accept a line once the sensor bar is >= 40% back inside the offset
+    if (!flowAvoid) { phase = '5'; logEv('5'); turnTo(h - ab * s, cfg.spdTurn, true);   // turning and the line is seen -> follow now
+      found = turnHitLine; avE5 = lastTurnErr;
+      if (found) return grabDone(); }
+    const float need = lat / sinB;
+    const float retMin = 0;                          // read the line NOW (a curved line may already be ahead of the sensor bar after the turn)
+    // 6. diagonal back: drive fast until the sensor bar is near the line, then SLOW DOWN (CATCH_PCT) so the line is not crossed too far
+    const float fastLen = max(0.0f, need - cfg.sensAx - 50.0f / sinB);   // slow down when the sensor bar is ~5 cm from the line
+    // touches the line -> NO stop, follow the line now (mergeLine). Only if that fails use the old way (catchLine).
+    const bool stopL = cfg.retMode == 1;              // STOP-ALIGN-TURN: brake as soon as the line is touched
+    if (!found) { phase = '6'; found = straightMM(fastLen, h - ab * s, cfg.spdRet, true, retMin, stopL); }
+    if (!found) found = straightMM(1.8f * need - fastLen, h - ab * s, min(cfg.spdRet, CATCH_PCT), true, 0, stopL);
+  }
   if (found && avSideHit) { avSideGrab = 0; return grabDone(); }   // C3.7: on a bend - follow the line immediately on the bend side
   bool arc = false, ok = false; avGate = false;
   if (!found) { phase = '7'; logEv('7'); found = arcFind(s, 150, 900); arc = true; }
-  if (found && !arc && cfg.retMode == 0) ok = mergeLine(h);
+  if (found && !arc && (cfg.retMode == 0 || arcMode)) ok = mergeLine(h);   // C3.19: ARC avoid always merges without stopping
   if (found && !ok) ok = catchLine(s, h, !arc);
   if (!ok) { logEv('X'); ok = sweepFind(dirExp(), 130, 170, 2, 2.5f); }   // C3.8: sweep first toward where the line continues (heading h / bend side)   // v3.7: wider sweep (the line may have changed direction - obstacle between 2 bends); if following backward, fixDir turns back
   if (ok) fixDir();
@@ -2471,7 +2536,7 @@ void doCmd(String s) {
   else if (k == "track" && set) cfg.track = v;
   else if (k == "aout" && set) cfg.aout = constrain(v, 30.0f, 90.0f);
   else if (k == "aback" && set) cfg.aback = constrain(v, 20.0f, 90.0f);
-  else if (k == "avmode" && set) cfg.avMode = constrain((int)v, 0, 2);   // 0 auto | 1 manual | 2 manual FLOWING (v3.5)
+  else if (k == "avmode" && set) cfg.avMode = constrain((int)v, 0, 3);   // 0 auto | 1 manual | 2 manual FLOWING (v3.5) | 3 ARC, no stops (C3.19)
   else if (k == "out" && set) cfg.outMm = constrain(v, 30.0f, 800.0f);
   else if (k == "par" && set) cfg.parMm = constrain(v, 0.0f, 1000.0f);
   else if (k == "vout" && set) cfg.spdOut = constrain(v, 20.0f, 100.0f);
@@ -2822,7 +2887,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.18 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.19 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
@@ -2865,7 +2930,7 @@ void webSet() {
                  {"sens", &cfg.sensAx, 0}, {"fin", &cfg.finMin, 0}, {"cpr", &cfg.cpr, 0}, {"wheel", &cfg.wheel, 0}, {"track", &cfg.track, 0}};
   if (web.hasArg("nobs") && web.arg("nobs").length()) cfg.nobs = constrain((int)web.arg("nobs").toFloat(), 0, 20);
   if (web.hasArg("side") && web.arg("side").length()) cfg.side = web.arg("side").toFloat() != 0;
-  if (web.hasArg("avmode") && web.arg("avmode").length()) cfg.avMode = constrain((int)web.arg("avmode").toFloat(), 0, 2);   // C3.4: fixed the web bug that turned avmode 2 into 1
+  if (web.hasArg("avmode") && web.arg("avmode").length()) cfg.avMode = constrain((int)web.arg("avmode").toFloat(), 0, 3);   // C3.4: fixed the web bug that turned avmode 2 into 1
   if (web.hasArg("out") && web.arg("out").length()) cfg.outMm = constrain(web.arg("out").toFloat(), 30.0f, 800.0f);
   if (web.hasArg("par") && web.arg("par").length()) cfg.parMm = constrain(web.arg("par").toFloat(), 0.0f, 1000.0f);
   struct { const char* k; float* p; float lo, hi; } fp[] = {{"vout", &cfg.spdOut, 20, 100}, {"vpar", &cfg.spdPar, 20, 100}, {"vret", &cfg.spdRet, 20, 100},
@@ -2938,7 +3003,7 @@ void webRoot() {
     {"", "OBSTACLE AVOIDANCE", "", 0},
     {"obs", "Distance to start avoiding (mm)", "If the VL53 sees an object closer than this, brake and avoid. Robot nose hits the brick while turning out → RAISE. Avoids too early/wrongly → LOWER. Suggested 100–150.", cfg.obs},
     {"side", "Avoid side (0 = LEFT, 1 = RIGHT)", "Contest track: avoid LEFT (inside of the bend, there is free space).", (float)cfg.side},
-    {"avmode", "Avoid mode (1 = MANUAL, 0 = AUTO)", "1 = the robot drives EXACTLY the distances set right below (easy to tune, recommended). 0 = the robot measures the brick with the VL53 and computes the distances itself.", (float)cfg.avMode},
+    {"avmode", "Avoid mode (3 = ARC, 2 = FLOW, 1 = MANUAL, 0 = AUTO)", "3 = ARC: no stops, one smooth curve around the brick (uses aout, lat, pass, aback). 2 = FLOW: pivot out, then steer through. 1 = drives EXACTLY the distances below. 0 = measures the brick with the VL53.", (float)cfg.avMode},
     {"aout", "① Turn-out angle (deg)", "Robot turn angle when starting to avoid (30–90). 45 = diagonal avoid. 90 = square avoid (sideways first, then forward).", cfg.aout},
     {"out", "② Diagonal-out distance (mm)", "MANUAL: distance driven after turning out. Lateral offset = distance × sin(out angle) (45° → ×0.7). Goes out TOO FAR → LOWER. Scrapes the brick side → RAISE. Brick ACROSS the line (205 wide): ~260. Brick ALONG (95 wide): ~190.", cfg.outMm},
     {"par", "③ Parallel distance (mm)", "MANUAL: straight distance parallel to the line to pass the brick. Goes TOO FAR → LOWER. Robot tail scrapes the brick when turning back → RAISE. Brick ACROSS: ~280. Brick ALONG (205 long along the line): ~380.", cfg.parMm},
