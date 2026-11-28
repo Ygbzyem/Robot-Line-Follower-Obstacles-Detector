@@ -1,6 +1,9 @@
 /*
   LINE ROBOT - CONTEST FIRMWARE (official contest track)                   version C3 (from C2)
   --------------------------------------------------------------------------------
+  VERSION C3.25 (28/11): ARC line catch: as soon as the line is under the bar (2 reads instead of 3) the robot FOLLOWS it with PD right away
+                    and, when the line slips off the bar while crossing at an angle, pivots toward the side the line continues on. The merge arc was
+                    dropped for ARC (28/11 log: it ran ~2x wider than planned and lost the line for 1.3 s).
   VERSION C3.24 (28/11): from the 28/11 C3.22 log (2nd brick: 1300 mm/s at 294 mm -> slid into it, pushed 4 s; line catch took 1.2 s):
                     (1) ENTRY: roll into the curve only if v <= sqrt(2 x 2500 x (VL - 110)); faster -> hard brake (brev 60 / bms 80) + back up if
                     too close (v3.8), then the same curve from standstill; (2) the VL53 slow zone (obs + 150 mm) slows to that safe speed instead of a
@@ -1471,10 +1474,11 @@ float avObX = 0, avObY = 0; bool avObOn = false; float avObOffD = 0;
 float obsRelG() { return wrap180(atan2f(avObY - odoY, avObX - odoX) * 57.2958f - heading()); }
 bool facingObs() { return avObOn && hypotf(avObX - odoX, avObY - odoY) < 450 && fabsf(obsRelG()) < 45; }
 float vSafeMM(float mm) { return sqrtf(2.0f * ARC_DECEL * max(0.0f, mm - ARC_CLEAR)); }
-bool grabLine() {
+// C3.25 hint: which side the line will leave the sensor bar (+ = right) when the robot is crossing it at an angle -> pivots the right way at once
+bool grabLine(float hint = 0) {
   phase = 'G'; logEv('G');
   const float base = oldPct(32);                   // C3.24: was raw 32 % = just above the dead band of the new gearbox -> crawled
-  float lastE = posC; uint32_t t0 = millis(), tPrev = micros(), tLost = 0, tOk = 0;
+  float lastE = (hint != 0 && fabsf(posC) < 1.5f) ? hint : posC; uint32_t t0 = millis(), tPrev = micros(), tLost = 0, tOk = 0;
   while (!aborted && millis() - t0 < 1200) {
     update(); readLine();
     if (facingObs()) { brake(); waitMs(20); return false; }   // v3.7: following BACKWARD toward the obstacle -> stop, let the caller turn 180
@@ -1708,7 +1712,7 @@ bool avoidObstacle() {
       if (peakV >= 0.6f && nBlack >= 1 && avGateOK()) {
         if (++hits == 1) { enterPos = posC; nb2 = false; }
         if (maxRun >= 2) nb2 = true;
-        if (hits >= 3 && nb2) { logEv('T'); found = true; if (cfg.retMode == 1) hardStop(); break; }   // C3.22: retm 1 -> brake on the line like avmode 2
+        if (hits >= 2 && nb2) { logEv('T'); found = true; break; }   // C3.25: 2 reads (was 3) -> caught while the line is still near the bar edge
       } else hits = 0;
       float bar = avCross();                        // C3.20: SENSOR BAR offset from the line (was the axle: the bar is ~100 mm closer at 65 deg)
       if (bar < -0.5f * L) break;                   // C3.21: well past the line (odometry can be ~50-100 mm off after a fast curve: was -45)
@@ -1738,7 +1742,15 @@ bool avoidObstacle() {
     if (!found) { phase = '6'; found = straightMM(fastLen, h - ab * s, cfg.spdRet, true, retMin, stopL); }
     if (!found) found = straightMM(1.8f * need - fastLen, h - ab * s, min(cfg.spdRet, CATCH_PCT), true, 0, stopL);
   }
-  if (found && avSideHit) { avSideGrab = 0; return grabDone(); }   // C3.7: on a bend - follow the line immediately on the bend side
+  if (found && avSideHit) { avSideGrab = 0; return grabDone(); }
+  if (found && arcMode) {
+    // C3.25 CATCH AND GO: the line is under the bar -> follow it NOW with PD (no merge arc: on the 28/11 log the planned arc ran ~2x wider and
+    // lost the line). The robot crosses at ~40-60 deg, so the line leaves the bar on the side it must turn to -> pivot that way at once.
+    bool okG = grabLine(-sA * 1.5f);
+    if (!okG && facingObs()) { fixDir(); okG = grabLine(); }
+    if (!okG) okG = sweepFind(sA > 0 ? -1 : 1, 110, 170, 2, 2.5f, PIVOT_PCT + 12);
+    if (okG) { fixDir(); phase = '-'; logEv('o'); return true; }
+  }   // C3.7: on a bend - follow the line immediately on the bend side
   bool arc = false, ok = false; avGate = false;
   if (!found && arcMode) {                         // C3.20: ARC passed the line without seeing it -> turn back toward the old heading (the line is behind the bar)
     logEv('X'); ok = sweepFind(sA > 0 ? -1 : 1, 110, 170, 2, 2.5f, PIVOT_PCT + 12);   // C3.21: stronger pivot (34 % stalled on the new gearbox)
@@ -2960,7 +2972,7 @@ void wifiStop() {
 // print the whole log (parameters + results + events + 50 ms table) through out()
 template <class F> void writeLog(F out) {
   char b[160];
-  snprintf(b, sizeof b, "LINE ROBOT C3.24 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
+  snprintf(b, sizeof b, "LINE ROBOT C3.25 | battery %.2f V | MPU %s VL53 %s\n", vbat, mpuOk ? "OK" : "NO", vlOk ? "OK" : "NO"); out(b);
   snprintf(b, sizeof b, "kp %.2f kd %.3f sp %d vmax %d | cpr %.0f wheel %.1f track %.0f sens %.0f fin %.0f\n",
            cfg.kp, cfg.kd, cfg.base, cfg.vmax, cfg.cpr, cfg.wheel, cfg.track, cfg.sensAx, cfg.finMin); out(b);
   snprintf(b, sizeof b, "obs %.0f lat %.0f pass %.0f aout %.0f aback %.0f nobs %d side %s | enc %+d %+d gyro %+d\n",
